@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Activity, BarChart3, Database, Download, FlaskConical, Gauge, RefreshCw, Sparkles, Target, UploadCloud } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from 'recharts'
 
 const API = 'http://127.0.0.1:8000/api'
 async function api(url:string, init?:RequestInit):Promise<any>{const r=await fetch(API+url,init);const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.detail||('Request failed '+r.status));return b}
