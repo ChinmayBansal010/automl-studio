@@ -1,0 +1,9 @@
+# Local user data and generated artifacts
+backend/workspace/
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.py[cod]
+.env
+.DS_Store
