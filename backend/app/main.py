@@ -281,8 +281,12 @@ class Train(BaseModel):
 
 @app.post("/api/train")
 def train(req: Train):
-    df=get_df(req.dataset_id).dropna(subset=[req.target]).copy()
-    if req.target not in get_df(req.dataset_id): raise HTTPException(400,"Target column not found.")
+    source_df = get_df(req.dataset_id)
+    if req.target not in source_df.columns:
+        raise HTTPException(400, "Target column not found.")
+    df = source_df.dropna(subset=[req.target]).copy()
+    if req.task == "classification" and df[req.target].nunique(dropna=True) > 100:
+        raise HTTPException(400, "Target has more than 100 classes. Choose another target or use regression for a continuous numeric target.")
     if req.task=="regression" and not pd.api.types.is_numeric_dtype(df[req.target]): raise HTTPException(400,"Regression requires a numeric target.")
     if df[req.target].nunique()<2 or len(df)<10: raise HTTPException(400,"Need at least 10 rows and 2 target values.")
     cols=[c for c in (req.selected_features or df.columns.tolist()) if c in df and c!=req.target]
