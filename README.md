@@ -15,7 +15,7 @@ A local-first machine-learning workspace built with React, TypeScript, Vite, Fas
 
 ### Configure authentication
 
-The app uses Neon Managed Auth with email verification. Copy `backend/.env.example` to `backend/.env` and keep the Neon Auth URLs in that file. These URLs are public identifiers, not database credentials. Do not expose a Neon database connection string or API key in the frontend.
+The app uses Neon Managed Auth with email verification. `backend/.env.example` contains the two runtime settings the backend needs: the Neon Auth base URL (for the same-origin auth proxy) and its public JWKS URL (to verify sign-in tokens). Copy it to `backend/.env`; do not add a Neon management API key or database connection string. Neither is required by this app, and a management key must never be exposed in frontend code.
 
 ### Windows (CMD)
 From the repository folder, open a CMD terminal for the backend:
@@ -35,7 +35,7 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:5173, create an account, and verify your email with the code Neon sends you. The backend/API runs at http://127.0.0.1:8000 (API docs: http://127.0.0.1:8000/docs). Keep both terminals open while using the app.
+Open http://localhost:5173 (or http://127.0.0.1:5173), create an account, and verify your email with the code Neon sends you. Both local origins are enabled for Neon Auth. The backend/API runs at http://127.0.0.1:8000 (API docs: http://127.0.0.1:8000/docs). Keep both terminals open while using the app.
 
 ### Linux (Konsole)
 Backend terminal:
@@ -55,7 +55,7 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:5173, create an account, and verify your email with the code Neon sends you. The backend/API runs at http://127.0.0.1:8000 (API docs: http://127.0.0.1:8000/docs). Keep both terminals open while using the app.
+Open http://localhost:5173 (or http://127.0.0.1:5173), create an account, and verify your email with the code Neon sends you. Both local origins are enabled for Neon Auth. The backend/API runs at http://127.0.0.1:8000 (API docs: http://127.0.0.1:8000/docs). Keep both terminals open while using the app.
 
 ## Deploy (free-tier configuration)
 
