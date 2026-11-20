@@ -10,6 +10,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
+      - key: FRONTEND_ORIGINS
+        value: https://automl-studio-blush.vercel.app,http://localhost:5173,http://127.0.0.1:5173
       - key: NEON_AUTH_BASE_URL
         value: https://ep-green-band-ao5jcsra.neonauth.c-2.ap-southeast-1.aws.neon.tech/automl_studio/auth
       - key: NEON_AUTH_JWKS_URL
