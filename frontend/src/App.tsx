@@ -6,7 +6,59 @@ import { authClient } from './auth'
 
 const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')).replace(/\/+$/, '')
 const API = `${BACKEND_URL}/api`
-async function api(url:string, init?:RequestInit):Promise<any>{if(!BACKEND_URL)throw new Error('Backend URL is not configured. Set VITE_BACKEND_URL for this deployment.');const session=await authClient.getSession();if(session.error)throw new Error(session.error.message);const token=session.data?.session?.token;if(!token)throw new Error('Your session expired. Please sign in again.');const headers=new Headers(init?.headers);headers.set('Authorization','Bearer '+token);const r=await fetch(API+url,{...init,headers});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.detail||('Request failed '+r.status));return b}
+
+async function getValidToken(): Promise<string> {
+  // Try current session first
+  let result = await authClient.getSession()
+  if (!result.error && result.data?.session?.token) return result.data.session.token
+  // Attempt a token refresh via the auth client
+  try {
+    const refreshed = await (authClient as any).refreshSession?.()
+    if (refreshed?.data?.session?.token) return refreshed.data.session.token
+  } catch { /* fall through */ }
+  // Re-fetch session one more time (cookie-based refresh may have kicked in)
+  result = await authClient.getSession()
+  if (!result.error && result.data?.session?.token) return result.data.session.token
+  throw new Error('Your session expired. Please sign in again.')
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, retries = 2): Promise<Response> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url, init)
+      // Retry on 502/503/504 (gateway / unavailable) but not on last attempt
+      if (attempt < retries && r.status >= 502 && r.status <= 504) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+        continue
+      }
+      return r
+    } catch (err) {
+      if (attempt >= retries) throw err
+      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+    }
+  }
+  return fetch(url, init) // unreachable but satisfies TS
+}
+
+async function api(url: string, init?: RequestInit): Promise<any> {
+  if (!BACKEND_URL) throw new Error('Backend URL is not configured. Set VITE_BACKEND_URL for this deployment.')
+  const token = await getValidToken()
+  const headers = new Headers(init?.headers)
+  headers.set('Authorization', 'Bearer ' + token)
+  let r = await fetchWithRetry(API + url, { ...init, headers })
+  // If we get a 401, try refreshing the token once and retry the request
+  if (r.status === 401) {
+    let freshToken: string
+    try { freshToken = await getValidToken() } catch { freshToken = '' }
+    if (freshToken && freshToken !== token) {
+      headers.set('Authorization', 'Bearer ' + freshToken)
+      r = await fetchWithRetry(API + url, { ...init, headers })
+    }
+  }
+  const b = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(b.detail || ('Request failed ' + r.status))
+  return b
+}
 const fmt=(v:any)=>v===null||v===undefined?'—':typeof v==='number'?Number(v.toFixed?.(4)??v).toLocaleString():String(v)
 function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=>Promise<void>}){
  const [tab,S]=useState('overview'),[p,SP]=useState<any>(null),[eda,SE]=useState<any>(null),[err,ER]=useState(''),[busy,SB]=useState(false),[ws,SW]=useState<any>({saved_datasets:[],saved_models:0}),[jobs,SJ]=useState<any[]>([])
@@ -25,7 +77,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
  async function makeChart(){if(!p)return;SB(true);try{SCH(await api('/datasets/'+p.dataset_id+'/chart',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chart_type:kind,x,y,aggregation:agg,rows,columns:grid})}))}catch(e){ER(String(e))}finally{SB(false)}}
  async function train(){if(!p||!target){ER('Select a target column.');return}SB(true);ER('');try{SModel(await api('/train',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataset_id:p.dataset_id,target,task,mode,model_name:modelName,test_size:split,scale_numeric:scale,drop_high_missing:drop,selected_features:features.filter(c=>c!==target),feature_selection:selection,k_features:k,use_pca:pca,pca_components:pcaK})}));S('evaluation');await refresh()}catch(e){ER(String(e))}finally{SB(false)}}
  async function predict(file?:File){if(!file||!model)return;SB(true);try{const f=new FormData();f.append('file',file);f.append('model_id',model.model_id);SPred(await api('/predict',{method:'POST',body:f}))}catch(e){ER(String(e))}finally{SB(false)}}
- async function download(url:string){try{if(!BACKEND_URL)throw new Error('Backend URL is not configured. Set VITE_BACKEND_URL for this deployment.');const session=await authClient.getSession();const token=session.data?.session?.token;if(!token)throw new Error('Your session expired. Please sign in again.');const response=await fetch(url.startsWith('/')?BACKEND_URL+url:API+url,{headers:{Authorization:'Bearer '+token}});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.detail||('Download failed '+response.status))}const objectUrl=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=objectUrl;a.download='download';a.click();URL.revokeObjectURL(objectUrl)}catch(e){ER(e instanceof Error?e.message:String(e))}}
+ async function download(url:string){try{if(!BACKEND_URL)throw new Error('Backend URL is not configured. Set VITE_BACKEND_URL for this deployment.');const token=await getValidToken();const response=await fetchWithRetry(url.startsWith('/')?BACKEND_URL+url:API+url,{headers:{Authorization:'Bearer '+token}});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.detail||('Download failed '+response.status))}const objectUrl=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=objectUrl;a.download='download';a.click();URL.revokeObjectURL(objectUrl)}catch(e){ER(e instanceof Error?e.message:String(e))}}
  const nav=[['overview','Overview',Gauge],['prepare','Preprocess data',RefreshCw],['charts','Chart builder',BarChart3],['train','Model training',FlaskConical],['evaluation','Evaluation',Activity],['predict','Predictions',Target]] as any[]
  const card=(title:string,body:any)=><section className="card"><h2>{title}</h2>{body}</section>
  const field=(label:string,child:any)=><label className="field"><span>{label}</span>{child}</label>
@@ -45,9 +97,9 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
 function App(){
  const [user,setUser]=useState<{id:string;email:string}|null>(null)
  const [ready,setReady]=useState(false)
- useEffect(()=>{authClient.getSession().then(result=>{if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token)setUser(result.data.user)}).catch(error=>console.error('Could not restore the sign-in session:',error)).finally(()=>setReady(true))},[])
- async function signOut(){const result=await authClient.signOut();if(result.error)throw new Error(result.error.message);setUser(null)}
- if(!ready)return <main className="auth-page"><p>Checking your session…</p></main>
+ useEffect(()=>{(async()=>{try{const result=await authClient.getSession();if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token){setUser(result.data.user);return}/* try refresh if session missing */try{const refreshed=await(authClient as any).refreshSession?.();if(refreshed?.data?.user&&refreshed?.data?.session?.token){setUser(refreshed.data.user);return}}catch{}/* no session, stay on login */}catch(error){console.error('Could not restore the sign-in session:',error)}finally{setReady(true)}})()},[])
+ async function signOut(){try{await authClient.signOut()}catch{}setUser(null)}
+ if(!ready)return <main className="auth-page"><section className="auth-card" style={{textAlign:'center'}}><p>Checking your session…</p></section></main>
  return user?<Workspace key={user.id} user={user} onSignOut={signOut}/>:<AuthScreen onAuthenticated={setUser}/>
 }
 export default App

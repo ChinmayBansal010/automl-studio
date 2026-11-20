@@ -40,13 +40,13 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 warnings.filterwarnings("ignore", category=UserWarning)
 app = FastAPI(title="AutoML Studio API", version="2.0.0")
 allowed_origins = [origin.strip() for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if origin.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 ROOT = Path(__file__).resolve().parent.parent / "workspace"
 NEON_AUTH_BASE_URL = os.getenv("NEON_AUTH_BASE_URL", "").rstrip("/")
 NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL", f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json")
 auth_url = urlsplit(NEON_AUTH_BASE_URL)
 AUTH_ORIGIN = f"{auth_url.scheme}://{auth_url.netloc}" if auth_url.scheme == "https" and auth_url.netloc else ""
-JWKS_CLIENT = jwt.PyJWKClient(NEON_AUTH_JWKS_URL) if AUTH_ORIGIN else None
+JWKS_CLIENT = jwt.PyJWKClient(NEON_AUTH_JWKS_URL, cache_jwk_set=True, lifespan=300) if AUTH_ORIGIN else None
 datasets: dict[tuple[str, str], pd.DataFrame] = {}
 models: dict[tuple[str, str], dict[str, Any]] = {}
 LIMIT = 100 * 1024 * 1024
@@ -74,9 +74,18 @@ def current_user(authorization: str | None = Header(default=None)) -> str:
     token = authorization[7:].strip()
     if not token:
         raise HTTPException(401, "A valid bearer token is required.")
-    try:
-        signing_key = JWKS_CLIENT.get_signing_key_from_jwt(token)
-        claims = jwt.decode(
+
+    def _verify(allow_cache_refresh: bool = False):
+        try:
+            signing_key = JWKS_CLIENT.get_signing_key_from_jwt(token)
+        except jwt.PyJWKClientError:
+            if allow_cache_refresh:
+                # Force a JWKS cache refresh and retry (key may have been rotated)
+                JWKS_CLIENT.fetch_data()
+                signing_key = JWKS_CLIENT.get_signing_key_from_jwt(token)
+            else:
+                raise
+        return jwt.decode(
             token,
             signing_key.key,
             algorithms=["EdDSA"],
@@ -84,6 +93,9 @@ def current_user(authorization: str | None = Header(default=None)) -> str:
             audience=AUTH_ORIGIN,
             options={"require": ["sub", "iat", "exp"]},
         )
+
+    try:
+        claims = _verify(allow_cache_refresh=True)
     except PyJWKClientConnectionError as exc:
         raise HTTPException(503, "The authentication provider is temporarily unavailable.") from exc
     except (jwt.InvalidTokenError, jwt.PyJWKClientError, ValueError) as exc:
@@ -200,16 +212,24 @@ async def auth_proxy(path: str, request: Request):
         if key.lower() in {"content-type", "cookie", "origin", "user-agent"}
     }
     try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
-            upstream = await client.request(
-                request.method,
-                f"{NEON_AUTH_BASE_URL}/{path}",
-                params=request.query_params,
-                content=await request.body(),
-                headers=headers,
-            )
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+            for attempt in range(3):
+                try:
+                    upstream = await client.request(
+                        request.method,
+                        f"{NEON_AUTH_BASE_URL}/{path}",
+                        params=request.query_params,
+                        content=await request.body(),
+                        headers=headers,
+                    )
+                    break
+                except httpx.RequestError:
+                    if attempt >= 2:
+                        raise
+                    import asyncio
+                    await asyncio.sleep(1 * (attempt + 1))
     except httpx.RequestError as exc:
-        raise HTTPException(502, "Neon Auth could not be reached.") from exc
+        raise HTTPException(502, "Neon Auth could not be reached. Please try again.") from exc
 
     response = Response(content=upstream.content, status_code=upstream.status_code)
     for name in ("content-type", "cache-control", "location"):

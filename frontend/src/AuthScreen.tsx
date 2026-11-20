@@ -87,22 +87,35 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
 
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <div className="auth-brand"><Sparkles size={24} /><span>AutoML Studio</span></div>
-        <h1>{needsVerification ? 'Verify your email' : isSignUp ? 'Create your account' : 'Welcome back'}</h1>
-        <p>{needsVerification ? `Enter the code sent to ${email}.` : 'Sign in to your private machine-learning workspace.'}</p>
-        <form onSubmit={submit}>
-          {!needsVerification && <>
-            <label className="auth-field"><span>Email</span><span className="auth-input"><Mail size={17} /><input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} /></span></label>
-            <label className="auth-field"><span>Password</span><span className="auth-input"><LockKeyhole size={17} /><input type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={8} required value={password} onChange={event => setPassword(event.target.value)} /></span></label>
-          </>}
-          {needsVerification && <label className="auth-field"><span>Verification code</span><input className="auth-otp" inputMode="numeric" autoComplete="one-time-code" required value={otp} onChange={event => setOtp(event.target.value)} /></label>}
-          {error && <div className="auth-error" role="alert">{error}</div>}
-          {notice && <div className="auth-notice" role="status">{notice}</div>}
-          <button className="primary auth-submit" disabled={busy}>{busy ? 'Please wait…' : needsVerification ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in'}</button>
-        </form>
-        {needsVerification ? <button className="auth-link" disabled={busy} onClick={resendCode}>Resend verification code</button> : <button className="auth-link" onClick={() => { setIsSignUp(value => !value); setError('') }}>{isSignUp ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>}
-      </section>
+      <div className="auth-wrapper">
+        <div className="auth-hero">
+          <div className="auth-hero-icon"><Sparkles size={40} /></div>
+          <h2>AutoML Studio</h2>
+          <p>Your private machine-learning workspace. Upload CSV data, preprocess, visualize, train models, and generate predictions — all in one place.</p>
+          <ul className="auth-features">
+            <li>Automated model comparison & leaderboard</li>
+            <li>Interactive EDA & chart builder</li>
+            <li>One-click preprocessing & feature engineering</li>
+            <li>Download trained models & predictions</li>
+          </ul>
+        </div>
+        <section className="auth-card">
+          <div className="auth-brand"><Sparkles size={24} /><span>AutoML Studio</span></div>
+          <h1>{needsVerification ? 'Verify your email' : isSignUp ? 'Create your account' : 'Welcome back'}</h1>
+          <p>{needsVerification ? `Enter the code sent to ${email}.` : 'Sign in to your private machine-learning workspace.'}</p>
+          <form onSubmit={submit}>
+            {!needsVerification && <>
+              <label className="auth-field"><span>Email</span><span className="auth-input"><Mail size={17} /><input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></span></label>
+              <label className="auth-field"><span>Password</span><span className="auth-input"><LockKeyhole size={17} /><input type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={8} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Min. 8 characters" /></span></label>
+            </>}
+            {needsVerification && <label className="auth-field"><span>Verification code</span><input className="auth-otp" inputMode="numeric" autoComplete="one-time-code" required value={otp} onChange={event => setOtp(event.target.value)} placeholder="Enter 6-digit code" /></label>}
+            {error && <div className="auth-error" role="alert">{error}</div>}
+            {notice && <div className="auth-notice" role="status">{notice}</div>}
+            <button className="primary auth-submit" disabled={busy}>{busy ? 'Please wait…' : needsVerification ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in'}</button>
+          </form>
+          {needsVerification ? <button className="auth-link" disabled={busy} onClick={resendCode}>Resend verification code</button> : <button className="auth-link" onClick={() => { setIsSignUp(value => !value); setError('') }}>{isSignUp ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>}
+        </section>
+      </div>
     </main>
   )
 }
