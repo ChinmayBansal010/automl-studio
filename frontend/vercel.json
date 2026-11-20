@@ -2,11 +2,7 @@
   "rewrites": [
     {
       "source": "/auth/:path*",
-      "destination": "https://automl-studio-api.onrender.com/auth/:path*"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "https://automl-studio-api.onrender.com/api/:path*"
+      "destination": "https://automl-studio-api-ap6u.onrender.com/auth/:path*"
     }
   ]
 }

@@ -10,5 +10,7 @@ __pycache__/
 *.py[cod]
 *.tsbuildinfo
 .env
+frontend/.env.local
+frontend/.env.*.local
 .DS_Store
 .env

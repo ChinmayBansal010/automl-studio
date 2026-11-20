@@ -31,6 +31,7 @@ python run.py
 Open a second CMD terminal for the frontend:
 ```bat
 cd automl-studio\frontend
+copy .env.example .env.local
 npm ci
 npm run dev
 ```
@@ -51,20 +52,23 @@ python run.py
 Frontend in a second Konsole:
 ```bash
 cd automl-studio/frontend
+cp .env.example .env.local
 npm ci
 npm run dev
 ```
 
 Open http://localhost:5173 (or http://127.0.0.1:5173), create an account, and verify your email with the code Neon sends you. Both local origins are enabled for Neon Auth. The backend/API runs at http://127.0.0.1:8000 (API docs: http://127.0.0.1:8000/docs). Keep both terminals open while using the app.
+Set `VITE_BACKEND_URL` in `frontend/.env.local` to override the local default.
 
 ## Deploy (free-tier configuration)
 
 - Deploy `render.yaml` as a Render Blueprint. The API validates Neon Auth JWTs and keeps each signed-in user's workspace separate.
-- Create a Vercel project with `frontend/` as its root directory. `frontend/vercel.json` sends `/api` and `/auth` through the Render API so auth cookies stay same-origin.
+- Create a Vercel project with `frontend/` as its root directory. `frontend/.env.production` sets the production backend URL; you can override it with `VITE_BACKEND_URL` in Vercel's environment settings. API requests go directly to this URL; the auth route remains same-origin through `frontend/vercel.json` so auth cookies work correctly.
 - After Vercel assigns the production URL, add that exact `https://...vercel.app` origin to Neon Auth's trusted domains. Keep `allow_localhost` enabled only if local development should continue using the production auth project.
+- Set Render's `FRONTEND_ORIGINS` environment variable to the Vercel deployment origin (for example, `https://your-project.vercel.app`) so browser API requests pass CORS checks. Include localhost origins too if needed for local frontend-to-Render testing.
 - Render free services can sleep and have ephemeral disks. Uploaded datasets, trained models, jobs, and prediction exports on this tier can disappear after a restart or redeploy; use persistent/object storage before relying on long-term retention. Free-tier compute and email delivery are also limited.
 
-The Render rewrite host in `frontend/vercel.json` assumes the API's Render service URL is `automl-studio-api.onrender.com`; update it if Render assigns a different URL. Account linking and the final trusted production domain are required before the app can be published safely.
+For local development, copy `frontend/.env.example` to `frontend/.env.local`; the default backend URL is `http://127.0.0.1:8000`. The production environment file and auth rewrite target both use the current Render URL and must be updated if that service URL changes. Account linking and the final trusted production domain are required before the app can be published safely.
 
 ## Local data
 The backend stores datasets, models, jobs, and exports under `backend/workspace/users/`, in a separate directory per authenticated account. This directory is intentionally git-ignored; back it up separately if needed.
