@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: automl-studio-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: NEON_AUTH_BASE_URL
+        value: https://ep-green-band-ao5jcsra.neonauth.c-2.ap-southeast-1.aws.neon.tech/automl_studio/auth
+      - key: NEON_AUTH_JWKS_URL
+        value: https://ep-green-band-ao5jcsra.neonauth.c-2.ap-southeast-1.aws.neon.tech/automl_studio/auth/.well-known/jwks.json

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-import io, json, uuid, warnings
+import hashlib, io, json, os, re, uuid, warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+import httpx
 import joblib
+import jwt
 import matplotlib
 matplotlib.use("Agg")
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from jwt.exceptions import PyJWKClientConnectionError
 from pydantic import BaseModel, Field
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
@@ -35,14 +39,61 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 warnings.filterwarnings("ignore", category=UserWarning)
 app = FastAPI(title="AutoML Studio API", version="2.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["*"], allow_headers=["*"])
+allowed_origins = [origin.strip() for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if origin.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["*"], allow_headers=["*"])
 ROOT = Path(__file__).resolve().parent.parent / "workspace"
-DATA, MODELS, JOBS = ROOT / "datasets", ROOT / "models", ROOT / "jobs"
-for folder in (DATA, MODELS, JOBS): folder.mkdir(parents=True, exist_ok=True)
-datasets: dict[str, pd.DataFrame] = {}
-models: dict[str, dict[str, Any]] = {}
-exports: dict[str, str] = {}
+NEON_AUTH_BASE_URL = os.getenv("NEON_AUTH_BASE_URL", "").rstrip("/")
+NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL", f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json")
+auth_url = urlsplit(NEON_AUTH_BASE_URL)
+AUTH_ORIGIN = f"{auth_url.scheme}://{auth_url.netloc}" if auth_url.scheme == "https" and auth_url.netloc else ""
+JWKS_CLIENT = jwt.PyJWKClient(NEON_AUTH_JWKS_URL) if AUTH_ORIGIN else None
+datasets: dict[tuple[str, str], pd.DataFrame] = {}
+models: dict[tuple[str, str], dict[str, Any]] = {}
 LIMIT = 100 * 1024 * 1024
+
+def user_workspace(user_id: str) -> tuple[Path, Path, Path, Path]:
+    user_root = ROOT / "users" / hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    paths = tuple(user_root / name for name in ("datasets", "models", "jobs", "exports"))
+    for path in paths:
+        path.mkdir(parents=True, exist_ok=True)
+    return paths
+
+def artifact_path(folder: Path, artifact_id: str, suffix: str) -> Path:
+    try:
+        if str(uuid.UUID(artifact_id)) != artifact_id:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(404, "Artifact not found.")
+    return folder / f"{artifact_id}{suffix}"
+
+def current_user(authorization: str | None = Header(default=None)) -> str:
+    if JWKS_CLIENT is None:
+        raise HTTPException(503, "Authentication is not configured.")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "A valid bearer token is required.")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(401, "A valid bearer token is required.")
+    try:
+        signing_key = JWKS_CLIENT.get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["EdDSA"],
+            issuer=AUTH_ORIGIN,
+            audience=AUTH_ORIGIN,
+            options={"require": ["sub", "iat", "exp"]},
+        )
+    except PyJWKClientConnectionError as exc:
+        raise HTTPException(503, "The authentication provider is temporarily unavailable.") from exc
+    except (jwt.InvalidTokenError, jwt.PyJWKClientError, ValueError) as exc:
+        raise HTTPException(401, "The bearer token is invalid or expired.") from exc
+    user_id = claims.get("sub")
+    if not isinstance(user_id, str) or not user_id:
+        raise HTTPException(401, "The bearer token has no user identity.")
+    if claims.get("emailVerified") is not True:
+        raise HTTPException(403, "Verify your email address before using the workspace.")
+    return user_id
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -58,12 +109,14 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
             if parsed.notna().mean() >= .7: df[c] = parsed
     return df
 
-def get_df(dataset_id: str) -> pd.DataFrame:
-    if dataset_id not in datasets:
-        path = DATA / f"{dataset_id}.csv"
-        if path.exists(): datasets[dataset_id] = clean(pd.read_csv(path, low_memory=False))
+def get_df(dataset_id: str, user_id: str) -> pd.DataFrame:
+    key = (user_id, dataset_id)
+    data_dir, _, _, _ = user_workspace(user_id)
+    if key not in datasets:
+        path = artifact_path(data_dir, dataset_id, ".csv")
+        if path.exists(): datasets[key] = clean(pd.read_csv(path, low_memory=False))
         else: raise HTTPException(404, "Dataset not found. Upload or restore the CSV.")
-    return datasets[dataset_id]
+    return datasets[key]
 
 def serial(v: Any) -> Any:
     if pd.isna(v): return None
@@ -137,24 +190,56 @@ def make_pipeline(X: pd.DataFrame, estimator: Any, scale: bool, selection: str =
 @app.get("/api/health")
 def health(): return {"status":"ok","service":"AutoML Studio API"}
 
+@app.api_route("/auth/{path:path}", methods=["GET", "POST", "OPTIONS"])
+async def auth_proxy(path: str, request: Request):
+    if not NEON_AUTH_BASE_URL:
+        raise HTTPException(503, "Neon Auth is not configured.")
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() in {"content-type", "cookie", "origin", "user-agent"}
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+            upstream = await client.request(
+                request.method,
+                f"{NEON_AUTH_BASE_URL}/{path}",
+                params=request.query_params,
+                content=await request.body(),
+                headers=headers,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Neon Auth could not be reached.") from exc
+
+    response = Response(content=upstream.content, status_code=upstream.status_code)
+    for name in ("content-type", "cache-control", "location"):
+        if name in upstream.headers:
+            response.headers[name] = upstream.headers[name]
+    for cookie in upstream.headers.get_list("set-cookie"):
+        cookie = re.sub(r";\s*Domain=[^;]+", "", cookie, flags=re.IGNORECASE)
+        cookie = re.sub(r";\s*Path=[^;]+", "; Path=/auth", cookie, flags=re.IGNORECASE)
+        response.headers.append("set-cookie", cookie)
+    return response
+
 @app.post("/api/datasets")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), user_id: str = Depends(current_user)):
     if not file.filename or not file.filename.lower().endswith(".csv"): raise HTTPException(400,"Upload a .csv file.")
     content = await file.read()
     if not content or len(content)>LIMIT: raise HTTPException(413 if content else 400,"CSV is empty or exceeds 100 MB.")
     try: df = clean(pd.read_csv(io.BytesIO(content),low_memory=False))
     except Exception as e: raise HTTPException(400,f"Could not parse CSV: {e}")
     if df.empty: raise HTTPException(400,"CSV has headers but no rows.")
-    did = str(uuid.uuid4()); datasets[did] = df; df.to_csv(DATA/f"{did}.csv",index=False)
-    (DATA/f"{did}.json").write_text(json.dumps({"dataset_id":did,"filename":file.filename,"saved_at":datetime.now().isoformat()}),encoding="utf-8")
+    data_dir, _, _, _ = user_workspace(user_id)
+    did = str(uuid.uuid4()); datasets[(user_id, did)] = df; df.to_csv(data_dir/f"{did}.csv",index=False)
+    (data_dir/f"{did}.json").write_text(json.dumps({"dataset_id":did,"filename":file.filename,"saved_at":datetime.now().isoformat()}),encoding="utf-8")
     return {"dataset_id":did,"filename":file.filename,"saved_locally":True,**profile(df)}
 
 @app.get("/api/datasets/{dataset_id}/profile")
-def get_profile(dataset_id: str): return profile(get_df(dataset_id))
+def get_profile(dataset_id: str, user_id: str = Depends(current_user)): return profile(get_df(dataset_id, user_id))
 
 @app.get("/api/datasets/{dataset_id}/eda")
-def eda(dataset_id: str):
-    df=get_df(dataset_id); numeric=df.select_dtypes(include=np.number); hist=[]
+def eda(dataset_id: str, user_id: str = Depends(current_user)):
+    df=get_df(dataset_id, user_id); numeric=df.select_dtypes(include=np.number); hist=[]
     for c in numeric.columns[:20]:
         vals=numeric[c].dropna()
         if len(vals):
@@ -178,8 +263,8 @@ class Prep(BaseModel):
     sample_size: int = Field(default=1000,ge=1,le=500000)
 
 @app.post("/api/datasets/{dataset_id}/preprocess")
-def preprocess(dataset_id: str, req: Prep):
-    df=get_df(dataset_id).copy(); cols=[c for c in req.columns if c in df]
+def preprocess(dataset_id: str, req: Prep, user_id: str = Depends(current_user)):
+    df=get_df(dataset_id, user_id).copy(); cols=[c for c in req.columns if c in df]
     op=req.operation
     if op=="drop_duplicates": df=df.drop_duplicates()
     elif op=="drop_missing_rows": df=df.dropna(subset=cols or None)
@@ -215,12 +300,13 @@ def preprocess(dataset_id: str, req: Prep):
     elif op=="reset_index": df=df.reset_index(drop=True)
     else: raise HTTPException(400,"Unknown preprocessing operation.")
     if df.empty: raise HTTPException(400,"Operation would create an empty dataset.")
-    datasets[dataset_id]=df; df.to_csv(DATA/f"{dataset_id}.csv",index=False)
+    data_dir, _, _, _ = user_workspace(user_id)
+    datasets[(user_id, dataset_id)]=df; df.to_csv(artifact_path(data_dir, dataset_id, ".csv"),index=False)
     return {"dataset_id":dataset_id,"saved_locally":True,**profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/feature-engineering")
-def feature_engineering(dataset_id: str, payload: dict[str,Any]):
-    df=get_df(dataset_id).copy(); op=payload.get("operation"); cols=[c for c in payload.get("columns",[]) if c in df]
+def feature_engineering(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(current_user)):
+    df=get_df(dataset_id, user_id).copy(); op=payload.get("operation"); cols=[c for c in payload.get("columns",[]) if c in df]
     if op=="one_hot_encode": df=pd.get_dummies(df,columns=cols,dummy_na=bool(payload.get("dummy_na",False)),dtype=int)
     elif op in ("standardize","minmax","log_transform","polynomial"):
         for c in cols:
@@ -238,12 +324,13 @@ def feature_engineering(dataset_id: str, payload: dict[str,Any]):
         df=df.drop(columns=cols)
         for i in range(n): df[f"PC{i+1}"]=z[:,i]
     else: raise HTTPException(400,"Unknown feature engineering operation.")
-    datasets[dataset_id]=df; df.to_csv(DATA/f"{dataset_id}.csv",index=False)
+    data_dir, _, _, _ = user_workspace(user_id)
+    datasets[(user_id, dataset_id)]=df; df.to_csv(artifact_path(data_dir, dataset_id, ".csv"),index=False)
     return {"dataset_id":dataset_id,"saved_locally":True,**profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/chart")
-def chart(dataset_id: str, payload: dict[str,Any]):
-    df=get_df(dataset_id); kind=payload.get("chart_type","bar"); x=payload.get("x"); y=payload.get("y")
+def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(current_user)):
+    df=get_df(dataset_id, user_id); kind=payload.get("chart_type","bar"); x=payload.get("x"); y=payload.get("y")
     rows=max(1,min(int(payload.get("rows",20)),500)); agg=payload.get("aggregation","mean")
     if x not in df: raise HTTPException(400,"Choose a valid X-axis column.")
     if kind in ("line","area","scatter","histogram") and y not in df: raise HTTPException(400,"Choose a valid numeric Y-axis column.")
@@ -280,8 +367,8 @@ class Train(BaseModel):
     pca_components: int = Field(default=0,ge=0,le=500)
 
 @app.post("/api/train")
-def train(req: Train):
-    source_df = get_df(req.dataset_id)
+def train(req: Train, user_id: str = Depends(current_user)):
+    source_df = get_df(req.dataset_id, user_id)
     if req.target not in source_df.columns:
         raise HTTPException(400, "Target column not found.")
     df = source_df.dropna(subset=[req.target]).copy()
@@ -324,72 +411,84 @@ def train(req: Train):
     ok=[r for r in results if "error" not in r]
     if not ok or best is None: raise HTTPException(400,"All candidate models failed: "+"; ".join(r["model_name"]+": "+r.get("error","") for r in results))
     results=sorted(ok,key=lambda r:r["primary_score"] if r["primary_score"] is not None else -999,reverse=True)
+    _, model_dir, job_dir, _ = user_workspace(user_id)
     mid=str(uuid.uuid4()); created=datetime.now().isoformat()
-    models[mid]={"pipeline":best_pipe,"task":req.task,"target":req.target,"feature_cols":cols,"model_name":best["model_name"],"dataset_id":req.dataset_id,"created_at":created}
-    joblib.dump(models[mid],MODELS/f"{mid}.joblib")
+    models[(user_id, mid)]={"pipeline":best_pipe,"task":req.task,"target":req.target,"feature_cols":cols,"model_name":best["model_name"],"dataset_id":req.dataset_id,"created_at":created}
+    joblib.dump(models[(user_id, mid)],model_dir/f"{mid}.joblib")
     job={"job_id":mid,"model_id":mid,"dataset_id":req.dataset_id,"target":req.target,"task":req.task,"mode":req.mode,"best_model":best["model_name"],"created_at":created,"train_rows":len(Xtr),"test_rows":len(Xte),"leaderboard":[{"model_name":r["model_name"],"primary_score":r["primary_score"],**r["metrics"]} for r in results]}
-    (JOBS/f"{mid}.json").write_text(json.dumps(job,indent=2),encoding="utf-8")
+    (job_dir/f"{mid}.json").write_text(json.dumps(job,indent=2),encoding="utf-8")
     return {"model_id":mid,"task":req.task,"target":req.target,"mode":req.mode,"best_model":best["model_name"],"feature_columns":cols,"train_rows":len(Xtr),"test_rows":len(Xte),"results":results,"leaderboard":job["leaderboard"],"best_evaluation":best["evaluation"],"warnings":["Preprocessing is fitted on the training split.","Holdout metrics are estimates; repeated tuning can overfit the holdout."],"saved_locally":True}
 
 @app.post("/api/predict")
-async def predict(model_id: str = Form(...), file: UploadFile = File(...), include_actual_column: str = Form(default="")):
-    if model_id not in models:
-        path=MODELS/f"{model_id}.joblib"
-        if path.exists(): models[model_id]=joblib.load(path)
+async def predict(model_id: str = Form(...), file: UploadFile = File(...), include_actual_column: str = Form(default=""), user_id: str = Depends(current_user)):
+    _, model_dir, _, export_dir = user_workspace(user_id)
+    model_key = (user_id, model_id)
+    if model_key not in models:
+        path=artifact_path(model_dir, model_id, ".joblib")
+        if path.exists(): models[model_key]=joblib.load(path)
         else: raise HTTPException(404,"Saved model not found.")
-    try: df=clean(pd.read_csv(io.BytesIO(await file.read()),low_memory=False))
+    content = await file.read()
+    if len(content)>LIMIT: raise HTTPException(413,"CSV exceeds 100 MB.")
+    try: df=clean(pd.read_csv(io.BytesIO(content),low_memory=False))
     except Exception as e: raise HTTPException(400,f"Could not parse test CSV: {e}")
-    m=models[model_id]; missing=[c for c in m["feature_cols"] if c not in df]
+    m=models[model_key]; missing=[c for c in m["feature_cols"] if c not in df]
     if missing: raise HTTPException(400,"Missing required columns: "+", ".join(missing))
     X=df[m["feature_cols"]].copy()
     for c in X:
         if pd.api.types.is_datetime64_any_dtype(X[c]):
             dt=pd.to_datetime(X[c],errors="coerce"); X[c+"__year"]=dt.dt.year; X[c+"__month"]=dt.dt.month; X=X.drop(columns=[c])
     pred=m["pipeline"].predict(X); out=df.copy(); out["Predicted_"+m["target"]]=pred
-    eid=str(uuid.uuid4()); exports[eid]=out.to_csv(index=False)
+    eid=str(uuid.uuid4())
+    (export_dir/f"{eid}.csv").write_text(out.to_csv(index=False),encoding="utf-8-sig")
     return {"export_id":eid,"rows":len(out),"predicted_column":"Predicted_"+m["target"],"preview":[{k:serial(v) for k,v in row.items()} for row in out.head(20).to_dict("records")],"download_url":f"/api/predictions/{eid}/download"}
 
 @app.get("/api/predictions/{export_id}/download")
-def download_predictions(export_id: str):
-    if export_id not in exports: raise HTTPException(404,"Prediction export not found.")
-    return StreamingResponse(io.BytesIO(exports[export_id].encode("utf-8-sig")),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=predictions.csv"})
+def download_predictions(export_id: str, user_id: str = Depends(current_user)):
+    _, _, _, export_dir = user_workspace(user_id)
+    path=artifact_path(export_dir, export_id, ".csv")
+    if not path.exists(): raise HTTPException(404,"Prediction export not found.")
+    return StreamingResponse(open(path,"rb"),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=predictions.csv"})
 
 @app.get("/api/models/{model_id}/download")
-def download_model(model_id: str):
-    path=MODELS/f"{model_id}.joblib"
+def download_model(model_id: str, user_id: str = Depends(current_user)):
+    _, model_dir, _, _ = user_workspace(user_id)
+    path=artifact_path(model_dir, model_id, ".joblib")
     if not path.exists(): raise HTTPException(404,"Model file not found.")
     return StreamingResponse(open(path,"rb"),media_type="application/octet-stream",headers={"Content-Disposition":f"attachment; filename={model_id}.joblib"})
 
 @app.get("/api/workspace")
-def workspace():
+def workspace(user_id: str = Depends(current_user)):
+    data_dir, model_dir, _, _ = user_workspace(user_id)
     saved=[]
-    for p in DATA.glob("*.json"):
+    for p in data_dir.glob("*.json"):
         try:
-            m=json.loads(p.read_text(encoding="utf-8")); csv=DATA/f"{m['dataset_id']}.csv"
+            m=json.loads(p.read_text(encoding="utf-8")); csv=artifact_path(data_dir,m["dataset_id"],".csv")
             if csv.exists(): m["size_bytes"]=csv.stat().st_size; saved.append(m)
         except Exception: pass
-    return {"saved_datasets":sorted(saved,key=lambda x:x.get("saved_at",""),reverse=True),"saved_models":len(list(MODELS.glob("*.joblib"))),"workspace_path":str(ROOT)}
+    return {"saved_datasets":sorted(saved,key=lambda x:x.get("saved_at",""),reverse=True),"saved_models":len(list(model_dir.glob("*.joblib")))}
 
 @app.get("/api/workspace/jobs")
-def saved_jobs():
+def saved_jobs(user_id: str = Depends(current_user)):
+    _, _, job_dir, _ = user_workspace(user_id)
     jobs=[]
-    for p in JOBS.glob("*.json"):
+    for p in job_dir.glob("*.json"):
         try: jobs.append(json.loads(p.read_text(encoding="utf-8")))
         except Exception: pass
-    return {"jobs":sorted(jobs,key=lambda x:x.get("created_at",""),reverse=True),"path":str(JOBS)}
+    return {"jobs":sorted(jobs,key=lambda x:x.get("created_at",""),reverse=True)}
 
 @app.post("/api/workspace/datasets/{dataset_id}/load")
-def restore(dataset_id: str):
-    path=DATA/f"{dataset_id}.csv"; meta=DATA/f"{dataset_id}.json"
+def restore(dataset_id: str, user_id: str = Depends(current_user)):
+    data_dir, _, _, _ = user_workspace(user_id)
+    path=artifact_path(data_dir,dataset_id,".csv"); meta=artifact_path(data_dir,dataset_id,".json")
     if not path.exists(): raise HTTPException(404,"Saved dataset not found.")
-    df=clean(pd.read_csv(path,low_memory=False)); datasets[dataset_id]=df
+    df=clean(pd.read_csv(path,low_memory=False)); datasets[(user_id,dataset_id)]=df
     name=json.loads(meta.read_text(encoding="utf-8")).get("filename",path.name) if meta.exists() else path.name
     return {"dataset_id":dataset_id,"filename":name,"saved_locally":True,**profile(df)}
 
 @app.get("/api/datasets/{dataset_id}/eda/report.png")
-def report(dataset_id: str):
+def report(dataset_id: str, user_id: str = Depends(current_user)):
     import matplotlib.pyplot as plt
-    df=get_df(dataset_id); cols=df.select_dtypes(include=np.number).columns[:8]
+    df=get_df(dataset_id,user_id); cols=df.select_dtypes(include=np.number).columns[:8]
     fig,axes=plt.subplots(max(1,len(cols)),1,figsize=(10,max(4,2.5*len(cols)))); axes=np.atleast_1d(axes)
     if not len(cols): axes[0].text(.5,.5,"No numeric columns",ha="center"); axes[0].axis("off")
     for ax,c in zip(axes,cols): ax.hist(df[c].dropna(),bins=25); ax.set_title(c)

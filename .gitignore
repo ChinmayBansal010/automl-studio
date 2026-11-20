@@ -2,8 +2,13 @@
 backend/workspace/
 backend/.venv/
 frontend/node_modules/
+node_modules/
 frontend/dist/
+frontend/vite.config.js
+frontend/vite.config.d.ts
 __pycache__/
 *.py[cod]
+*.tsbuildinfo
 .env
 .DS_Store
+.env

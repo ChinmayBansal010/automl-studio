@@ -13,28 +13,36 @@ A local-first machine-learning workspace built with React, TypeScript, Vite, Fas
 
 ## Run locally
 
+### Configure authentication
+
+The app uses Neon Managed Auth with email verification. Copy `backend/.env.example` to `backend/.env` and keep the Neon Auth URLs in that file. These URLs are public identifiers, not database credentials. Do not expose a Neon database connection string or API key in the frontend.
+
 ### Windows (CMD)
-Backend terminal:
+From the repository folder, open a CMD terminal for the backend:
 ```bat
 cd automl-studio\backend
-python -m venv .venv
+if not exist .venv python -m venv .venv
+if not exist .env copy .env.example .env
 .venv\Scripts\activate.bat
 pip install -r requirements.txt
 python run.py
 ```
 
-Frontend in a second CMD:
+Open a second CMD terminal for the frontend:
 ```bat
 cd automl-studio\frontend
-npm install
+npm ci
 npm run dev
 ```
+
+Open http://localhost:5173, create an account, and verify your email with the code Neon sends you. The backend/API runs at http://127.0.0.1:8000 (API docs: http://127.0.0.1:8000/docs). Keep both terminals open while using the app.
 
 ### Linux (Konsole)
 Backend terminal:
 ```bash
 cd automl-studio/backend
-python3 -m venv .venv
+test -d .venv || python3 -m venv .venv
+test -f .env || cp .env.example .env
 source .venv/bin/activate
 pip install -r requirements.txt
 python run.py
@@ -43,14 +51,23 @@ python run.py
 Frontend in a second Konsole:
 ```bash
 cd automl-studio/frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open http://localhost:5173. API docs: http://127.0.0.1:8000/docs.
+Open http://localhost:5173, create an account, and verify your email with the code Neon sends you. The backend/API runs at http://127.0.0.1:8000 (API docs: http://127.0.0.1:8000/docs). Keep both terminals open while using the app.
+
+## Deploy (free-tier configuration)
+
+- Deploy `render.yaml` as a Render Blueprint. The API validates Neon Auth JWTs and keeps each signed-in user's workspace separate.
+- Create a Vercel project with `frontend/` as its root directory. `frontend/vercel.json` sends `/api` and `/auth` through the Render API so auth cookies stay same-origin.
+- After Vercel assigns the production URL, add that exact `https://...vercel.app` origin to Neon Auth's trusted domains. Keep `allow_localhost` enabled only if local development should continue using the production auth project.
+- Render free services can sleep and have ephemeral disks. Uploaded datasets, trained models, jobs, and prediction exports on this tier can disappear after a restart or redeploy; use persistent/object storage before relying on long-term retention. Free-tier compute and email delivery are also limited.
+
+The Render rewrite host in `frontend/vercel.json` assumes the API's Render service URL is `automl-studio-api.onrender.com`; update it if Render assigns a different URL. Account linking and the final trusted production domain are required before the app can be published safely.
 
 ## Local data
-The backend saves datasets, models, and jobs under `backend/workspace/`. This directory is intentionally git-ignored; back it up separately if needed. The app is intended for local development and should not be exposed to untrusted networks without authentication.
+The backend stores datasets, models, jobs, and exports under `backend/workspace/users/`, in a separate directory per authenticated account. This directory is intentionally git-ignored; back it up separately if needed.
 
 ## Notes
 Training-time imputation, encoding, scaling, feature selection, and PCA are fitted inside the training pipeline to reduce leakage. Holdout metrics are estimates; repeatedly tuning against the same test split can overfit.
