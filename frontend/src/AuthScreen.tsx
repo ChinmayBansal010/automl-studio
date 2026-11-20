@@ -26,7 +26,12 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
   const [notice, setNotice] = useState('')
 
   async function finishSignIn() {
-    const result = await authClient.getSession()
+    let result = await authClient.getSession()
+    if (result.error || !result.data?.user || !result.data.session?.token) {
+      result = await authClient.getSession({
+        fetchOptions: { headers: { 'X-Force-Fetch': 'true' } },
+      })
+    }
     if (result.error) throw new Error(result.error.message)
     if (!result.data?.user || !result.data.session?.token) {
       throw new Error('No active session was returned. Please sign in again.')
@@ -42,8 +47,13 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
     try {
       if (needsVerification) {
         await authRequest('email-otp/verify-email', { email, otp })
-        const session = await authClient.getSession()
-        if (session.data?.user && session.data.session?.token) {
+        let session = await authClient.getSession()
+        if (session.error || !session.data?.user || !session.data.session?.token) {
+          session = await authClient.getSession({
+            fetchOptions: { headers: { 'X-Force-Fetch': 'true' } },
+          })
+        }
+        if (!session.error && session.data?.user && session.data.session?.token) {
           onAuthenticated(session.data.user)
         } else {
           const signIn = await authClient.signIn.email({ email, password })

@@ -7,18 +7,19 @@ import { authClient } from './auth'
 const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')).replace(/\/+$/, '')
 const API = `${BACKEND_URL}/api`
 
-async function getValidToken(): Promise<string> {
-  // Try current session first
-  let result = await authClient.getSession()
+async function getValidToken(forceRefresh = false): Promise<string> {
+  const readSession = (force: boolean) => authClient.getSession(
+    force ? { fetchOptions: { headers: { 'X-Force-Fetch': 'true' } } } : undefined
+  )
+
+  let result = await readSession(forceRefresh)
   if (!result.error && result.data?.session?.token) return result.data.session.token
-  // Attempt a token refresh via the auth client
-  try {
-    const refreshed = await (authClient as any).refreshSession?.()
-    if (refreshed?.data?.session?.token) return refreshed.data.session.token
-  } catch { /* fall through */ }
-  // Re-fetch session one more time (cookie-based refresh may have kicked in)
-  result = await authClient.getSession()
-  if (!result.error && result.data?.session?.token) return result.data.session.token
+
+  if (!forceRefresh) {
+    result = await readSession(true)
+    if (!result.error && result.data?.session?.token) return result.data.session.token
+  }
+
   throw new Error('Your session expired. Please sign in again.')
 }
 
@@ -49,7 +50,7 @@ async function api(url: string, init?: RequestInit): Promise<any> {
   // If we get a 401, try refreshing the token once and retry the request
   if (r.status === 401) {
     let freshToken: string
-    try { freshToken = await getValidToken() } catch { freshToken = '' }
+    try { freshToken = await getValidToken(true) } catch { freshToken = '' }
     if (freshToken && freshToken !== token) {
       headers.set('Authorization', 'Bearer ' + freshToken)
       r = await fetchWithRetry(API + url, { ...init, headers })
@@ -97,7 +98,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
 function App(){
  const [user,setUser]=useState<{id:string;email:string}|null>(null)
  const [ready,setReady]=useState(false)
- useEffect(()=>{(async()=>{try{const result=await authClient.getSession();if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token){setUser(result.data.user);return}/* try refresh if session missing */try{const refreshed=await(authClient as any).refreshSession?.();if(refreshed?.data?.user&&refreshed?.data?.session?.token){setUser(refreshed.data.user);return}}catch{}/* no session, stay on login */}catch(error){console.error('Could not restore the sign-in session:',error)}finally{setReady(true)}})()},[])
+ useEffect(()=>{(async()=>{try{let result=await authClient.getSession();if(!result.error&&result.data?.user&&result.data.session?.token){setUser(result.data.user);return}result=await authClient.getSession({fetchOptions:{headers:{'X-Force-Fetch':'true'}}});if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token){setUser(result.data.user);return}/* no active session, stay on login */}catch(error){console.error('Could not restore the sign-in session:',error)}finally{setReady(true)}})()},[])
  async function signOut(){try{await authClient.signOut()}catch{}setUser(null)}
  if(!ready)return <main className="auth-page"><section className="auth-card" style={{textAlign:'center'}}><p>Checking your session…</p></section></main>
  return user?<Workspace key={user.id} user={user} onSignOut={signOut}/>:<AuthScreen onAuthenticated={setUser}/>

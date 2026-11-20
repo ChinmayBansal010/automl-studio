@@ -232,7 +232,7 @@ async def auth_proxy(path: str, request: Request):
         raise HTTPException(502, "Neon Auth could not be reached. Please try again.") from exc
 
     response = Response(content=upstream.content, status_code=upstream.status_code)
-    for name in ("content-type", "cache-control", "location"):
+    for name in ("content-type", "cache-control", "location", "set-auth-jwt"):
         if name in upstream.headers:
             response.headers[name] = upstream.headers[name]
     for cookie in upstream.headers.get_list("set-cookie"):
