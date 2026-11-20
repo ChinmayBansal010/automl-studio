@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { LockKeyhole, Mail, Sparkles } from 'lucide-react'
+import { ArrowRight, Check, LockKeyhole, Mail, ShieldCheck, Sparkles } from 'lucide-react'
 import { authClient } from './auth'
 
 type AuthUser = { id: string; email: string; name?: string }
@@ -70,7 +70,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
 
       if (isSignUp) {
         setNeedsVerification(true)
-        setNotice('Check your email for a verification code.')
+        setNotice('Check your inbox for the verification code.')
       } else {
         await finishSignIn()
       }
@@ -95,35 +95,80 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
     }
   }
 
+  function switchMode(signUp: boolean) {
+    setIsSignUp(signUp)
+    setError('')
+    setNotice('')
+  }
+
   return (
     <main className="auth-page">
-      <div className="auth-wrapper">
-        <div className="auth-hero">
-          <div className="auth-hero-icon"><Sparkles size={40} /></div>
-          <h2>AutoML Studio</h2>
-          <p>Your private machine-learning workspace. Upload CSV data, preprocess, visualize, train models, and generate predictions — all in one place.</p>
-          <ul className="auth-features">
-            <li>Automated model comparison & leaderboard</li>
-            <li>Interactive EDA & chart builder</li>
-            <li>One-click preprocessing & feature engineering</li>
-            <li>Download trained models & predictions</li>
-          </ul>
-        </div>
-        <section className="auth-card">
-          <div className="auth-brand"><Sparkles size={24} /><span>AutoML Studio</span></div>
-          <h1>{needsVerification ? 'Verify your email' : isSignUp ? 'Create your account' : 'Welcome back'}</h1>
-          <p>{needsVerification ? `Enter the code sent to ${email}.` : 'Sign in to your private machine-learning workspace.'}</p>
-          <form onSubmit={submit}>
-            {!needsVerification && <>
-              <label className="auth-field"><span>Email</span><span className="auth-input"><Mail size={17} /><input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></span></label>
-              <label className="auth-field"><span>Password</span><span className="auth-input"><LockKeyhole size={17} /><input type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={8} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Min. 8 characters" /></span></label>
-            </>}
-            {needsVerification && <label className="auth-field"><span>Verification code</span><input className="auth-otp" inputMode="numeric" autoComplete="one-time-code" required value={otp} onChange={event => setOtp(event.target.value)} placeholder="Enter 6-digit code" /></label>}
-            {error && <div className="auth-error" role="alert">{error}</div>}
-            {notice && <div className="auth-notice" role="status">{notice}</div>}
-            <button className="primary auth-submit" disabled={busy}>{busy ? 'Please wait…' : needsVerification ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in'}</button>
-          </form>
-          {needsVerification ? <button className="auth-link" disabled={busy} onClick={resendCode}>Resend verification code</button> : <button className="auth-link" onClick={() => { setIsSignUp(value => !value); setError('') }}>{isSignUp ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>}
+      <header className="auth-topbar">
+        <a className="auth-topbrand" href="/" aria-label="AutoML Studio home">
+          <span className="auth-topbrand-mark"><Sparkles size={19} /></span>
+          <span>AutoML <strong>Studio</strong></span>
+        </a>
+        <div className="auth-topbar-meta"><ShieldCheck size={15} /> Secure workspace access</div>
+      </header>
+
+      <div className="auth-layout">
+        <section className="auth-showcase">
+          <div className="auth-eyebrow"><span /> YOUR DATA. YOUR MODELS. YOUR WORKSPACE.</div>
+          <h1>Make better models.<br /><span>With less busywork.</span></h1>
+          <p className="auth-showcase-copy">A focused workspace to explore datasets, prepare features, compare machine-learning models, and turn experiments into predictions.</p>
+
+          <div className="auth-feature-list">
+            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Explore with clarity</strong><small>Understand data quality and distributions.</small></span></div>
+            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Build with confidence</strong><small>Preprocess data and compare algorithms.</small></span></div>
+            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Keep work organized</strong><small>Save datasets, models, and predictions.</small></span></div>
+          </div>
+
+          <div className="auth-showcase-note"><span className="auth-note-dot" /> A private workspace for your machine-learning workflow</div>
+          <div className="auth-orbit auth-orbit-one" />
+          <div className="auth-orbit auth-orbit-two" />
+        </section>
+
+        <section className="auth-panel">
+          <div className="auth-card">
+            <div className="auth-card-heading">
+              <div className="auth-card-icon"><Sparkles size={21} /></div>
+              <div><span className="auth-card-kicker">AUTOML STUDIO</span><h2>{needsVerification ? 'Verify your email' : isSignUp ? 'Create your account' : 'Welcome back'}</h2></div>
+            </div>
+            <p className="auth-card-description">
+              {needsVerification
+                ? `Enter the verification code sent to ${email}.`
+                : isSignUp
+                  ? 'Create an account to set up your private workspace.'
+                  : 'Sign in to continue to your machine-learning workspace.'}
+            </p>
+
+            {!needsVerification && (
+              <div className="auth-mode-switch" role="tablist" aria-label="Authentication mode">
+                <button type="button" role="tab" aria-selected={!isSignUp} className={!isSignUp ? 'selected' : ''} onClick={() => switchMode(false)}>Sign in</button>
+                <button type="button" role="tab" aria-selected={isSignUp} className={isSignUp ? 'selected' : ''} onClick={() => switchMode(true)}>Create account</button>
+              </div>
+            )}
+
+            <form onSubmit={submit}>
+              {!needsVerification && <>
+                <label className="auth-field"><span>Email address</span><span className="auth-input"><Mail size={17} /><input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" /></span></label>
+                <label className="auth-field"><span>Password</span><span className="auth-input"><LockKeyhole size={17} /><input type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={8} required value={password} onChange={event => setPassword(event.target.value)} placeholder="At least 8 characters" /></span></label>
+              </>}
+              {needsVerification && <label className="auth-field"><span>Verification code</span><input className="auth-otp" inputMode="numeric" autoComplete="one-time-code" required value={otp} onChange={event => setOtp(event.target.value)} placeholder="Enter your code" /></label>}
+              {error && <div className="auth-error" role="alert">{error}</div>}
+              {notice && <div className="auth-notice" role="status">{notice}</div>}
+              <button className="primary auth-submit" disabled={busy}>
+                {busy ? 'Please wait…' : needsVerification ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in'}
+                {!busy && <ArrowRight size={16} />}
+              </button>
+            </form>
+
+            {needsVerification
+              ? <button className="auth-link" disabled={busy} onClick={resendCode}>Resend verification code</button>
+              : <p className="auth-switch-copy">{isSignUp ? 'Already have an account?' : 'New to AutoML Studio?'} <button className="auth-link-inline" type="button" onClick={() => switchMode(!isSignUp)}>{isSignUp ? 'Sign in' : 'Create an account'}</button></p>}
+            <div className="auth-security-note"><ShieldCheck size={14} /> Your account is protected by secure authentication.</div>
+          </div>
+          <div className="auth-panel-footer">AutoML Studio <span>·</span> Machine learning, organized.</div>
         </section>
       </div>
     </main>
