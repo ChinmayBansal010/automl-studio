@@ -284,71 +284,113 @@ class Prep(BaseModel):
 
 @app.post("/api/datasets/{dataset_id}/preprocess")
 def preprocess(dataset_id: str, req: Prep, user_id: str = Depends(current_user)):
-    df=get_df(dataset_id, user_id).copy(); cols=[c for c in req.columns if c in df]
-    op=req.operation
-    if op=="drop_duplicates": df=df.drop_duplicates()
-    elif op=="drop_missing_rows": df=df.dropna(subset=cols or None)
-    elif op=="drop_columns":
-        if not cols: raise HTTPException(400,"Select columns to drop.")
-        df=df.drop(columns=cols)
-    elif op=="fill_missing":
-        selected=cols or df.columns.tolist()
-        if req.strategy=="drop": df=df.dropna(subset=selected)
-        else:
+    df = get_df(dataset_id, user_id).copy()
+    cols = [c for c in req.columns if c in df]
+    op = req.operation
+    if op == "drop_duplicates":
+        df = df.drop_duplicates()
+    elif op == "drop_missing_rows":
+        df = df.dropna(subset=cols or None)
+    elif op == "drop_columns":
+        if not cols: raise HTTPException(400, "Select at least one column to drop.")
+        df = df.drop(columns=cols)
+    elif op == "fill_missing":
+        selected = cols or df.columns.tolist()
+        if req.strategy not in {"mean","median","mode","constant","zero","ffill","bfill","drop"}:
+            raise HTTPException(400, "Choose a valid missing-value strategy.")
+        if req.strategy == "drop":
+            df = df.dropna(subset=selected)
+        elif req.strategy in {"mean","median","zero"}:
+            numeric = [c for c in selected if pd.api.types.is_numeric_dtype(df[c])]
+            if not numeric: raise HTTPException(400, "This strategy requires at least one selected numeric column.")
+            for c in numeric:
+                fill_value = 0 if req.strategy == "zero" else df[c].mean() if req.strategy == "mean" else df[c].median()
+                df[c] = df[c].fillna(fill_value)
+        elif req.strategy == "mode":
             for c in selected:
-                if req.strategy=="mean" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(df[c].mean())
-                elif req.strategy=="median" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(df[c].median())
-                elif req.strategy=="mode" and not df[c].mode().empty: df[c]=df[c].fillna(df[c].mode().iloc[0])
-                elif req.strategy=="constant": df[c]=df[c].fillna(req.value or "Unknown")
-                elif req.strategy=="zero" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(0)
-                elif req.strategy=="ffill": df[c]=df[c].ffill()
-                elif req.strategy=="bfill": df[c]=df[c].bfill()
-    elif op=="drop_high_missing": df=df.drop(columns=[c for c in df if df[c].isna().mean()>req.threshold])
+                modes = df[c].mode(dropna=True)
+                if not modes.empty: df[c] = df[c].fillna(modes.iloc[0])
+        elif req.strategy == "constant":
+            for c in selected: df[c] = df[c].fillna(req.value if req.value != "" else "Unknown")
+        elif req.strategy == "ffill":
+            df[selected] = df[selected].ffill()
+        elif req.strategy == "bfill":
+            df[selected] = df[selected].bfill()
+    elif op == "drop_high_missing":
+        removed = [c for c in df.columns if df[c].isna().mean() > req.threshold]
+        if len(removed) == len(df.columns): raise HTTPException(400, "The selected threshold would remove every column.")
+        df = df.drop(columns=removed)
     elif op in ("drop_outliers","clip_outliers"):
-        for c in cols or df.select_dtypes(include=np.number).columns:
-            if not pd.api.types.is_numeric_dtype(df[c]): continue
-            q1,q3=df[c].quantile(.25),df[c].quantile(.75); iqr=q3-q1
-            if op=="clip_outliers": df[c]=df[c].clip(q1-1.5*iqr,q3+1.5*iqr)
-            else: df=df[df[c].between(q1-1.5*iqr,q3+1.5*iqr)|df[c].isna()]
-    elif op=="convert_numeric":
-        for c in cols: df[c]=pd.to_numeric(df[c],errors="coerce")
-    elif op=="convert_datetime":
-        for c in cols: df[c]=pd.to_datetime(df[c],errors="coerce")
-    elif op=="rename_column":
-        if len(cols)!=1 or not req.new_name.strip(): raise HTTPException(400,"Select one column and enter its new name.")
-        if req.new_name in df and req.new_name!=cols[0]: raise HTTPException(400,"Column name already exists.")
-        df=df.rename(columns={cols[0]:req.new_name.strip()})
-    elif op=="sample_rows": df=df.sample(n=min(req.sample_size,len(df)),random_state=42)
-    elif op=="reset_index": df=df.reset_index(drop=True)
-    else: raise HTTPException(400,"Unknown preprocessing operation.")
-    if df.empty: raise HTTPException(400,"Operation would create an empty dataset.")
-    data_dir, _, _, _ = user_workspace(user_id)
-    datasets[(user_id, dataset_id)]=df; df.to_csv(artifact_path(data_dir, dataset_id, ".csv"),index=False)
-    return {"dataset_id":dataset_id,"saved_locally":True,**profile(df)}
+        selected = cols or df.select_dtypes(include=np.number).columns.tolist()
+        numeric = [c for c in selected if pd.api.types.is_numeric_dtype(df[c])]
+        if not numeric: raise HTTPException(400, "Select at least one numeric column for IQR outlier handling.")
+        for c in numeric:
+            values = df[c].dropna()
+            if values.empty: continue
+            q1,q3 = values.quantile(.25),values.quantile(.75)
+            lower,upper = q1-1.5*(q3-q1),q3+1.5*(q3-q1)
+            if op == "clip_outliers": df[c] = df[c].clip(lower,upper)
+            else: df = df[df[c].isna() | df[c].between(lower,upper)]
+    elif op == "convert_numeric":
+        if not cols: raise HTTPException(400, "Select at least one column to convert.")
+        for c in cols: df[c] = pd.to_numeric(df[c],errors="coerce")
+    elif op == "convert_datetime":
+        if not cols: raise HTTPException(400, "Select at least one column to convert.")
+        for c in cols: df[c] = pd.to_datetime(df[c],errors="coerce")
+    elif op == "rename_column":
+        if len(cols)!=1 or not req.new_name.strip(): raise HTTPException(400, "Select exactly one column and enter its new name.")
+        new_name=req.new_name.strip()
+        if new_name in df.columns and new_name!=cols[0]: raise HTTPException(400, "That column name already exists.")
+        df=df.rename(columns={cols[0]:new_name})
+    elif op == "sample_rows":
+        df=df.sample(n=min(req.sample_size,len(df)),random_state=42)
+    elif op == "reset_index":
+        df=df.reset_index(drop=True)
+    else:
+        raise HTTPException(400, "Unknown preprocessing operation.")
+    if df.empty: raise HTTPException(400, "This operation would create an empty dataset. No changes were saved.")
+    data_dir,_,_,_=user_workspace(user_id)
+    datasets[(user_id,dataset_id)]=df
+    df.to_csv(artifact_path(data_dir,dataset_id,".csv"),index=False)
+    return {"dataset_id":dataset_id,"operation":op,"saved_locally":True,**profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/feature-engineering")
 def feature_engineering(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(current_user)):
-    df=get_df(dataset_id, user_id).copy(); op=payload.get("operation"); cols=[c for c in payload.get("columns",[]) if c in df]
-    if op=="one_hot_encode": df=pd.get_dummies(df,columns=cols,dummy_na=bool(payload.get("dummy_na",False)),dtype=int)
-    elif op in ("standardize","minmax","log_transform","polynomial"):
-        for c in cols:
-            if not pd.api.types.is_numeric_dtype(df[c]): continue
-            if op=="standardize": df[c]=(df[c]-df[c].mean())/(df[c].std() or 1)
-            elif op=="minmax": df[c]=(df[c]-df[c].min())/((df[c].max()-df[c].min()) or 1)
-            elif op=="log_transform": df[c]=np.log1p(df[c].clip(lower=0))
-            else: df[f"{c}__squared"]=df[c]**2
-    elif op=="pca":
+    df=get_df(dataset_id,user_id).copy()
+    op=payload.get("operation")
+    cols=[c for c in payload.get("columns",[]) if c in df]
+    if op=="pca":
         cols=[c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
-        if len(cols)<2: raise HTTPException(400,"PCA requires at least two numeric columns.")
-        x=df[cols].apply(pd.to_numeric,errors="coerce"); x=x.fillna(x.median()).fillna(0)
-        n=min(int(payload.get("components",2)),len(cols),len(df))
+        if len(cols)<2: raise HTTPException(400,"PCA requires at least two selected numeric columns.")
+        x=df[cols].apply(pd.to_numeric,errors="coerce").replace([np.inf,-np.inf],np.nan)
+        x=x.fillna(x.median()).fillna(0)
+        n=min(int(payload.get("components",2)),len(cols),len(df)-1)
+        if n<1: raise HTTPException(400,"Not enough rows to calculate PCA.")
         z=PCA(n_components=n,random_state=42).fit_transform(StandardScaler().fit_transform(x))
         df=df.drop(columns=cols)
-        for i in range(n): df[f"PC{i+1}"]=z[:,i]
-    else: raise HTTPException(400,"Unknown feature engineering operation.")
-    data_dir, _, _, _ = user_workspace(user_id)
-    datasets[(user_id, dataset_id)]=df; df.to_csv(artifact_path(data_dir, dataset_id, ".csv"),index=False)
-    return {"dataset_id":dataset_id,"saved_locally":True,**profile(df)}
+        for i in range(n): df["PC"+str(i+1)]=z[:,i]
+    else:
+        if not cols: raise HTTPException(400,"Select at least one column for feature engineering.")
+        if op=="one_hot_encode":
+            df=pd.get_dummies(df,columns=cols,dummy_na=bool(payload.get("dummy_na",False)),dtype=np.uint8)
+        elif op in ("standardize","minmax","log_transform","polynomial"):
+            numeric=[c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
+            if not numeric: raise HTTPException(400,"This transformation requires at least one selected numeric column.")
+            for c in numeric:
+                values=pd.to_numeric(df[c],errors="coerce")
+                if op=="standardize":
+                    std=values.std()
+                    df[c]=(values-values.mean())/(std if pd.notna(std) and std!=0 else 1)
+                elif op=="minmax":
+                    span=values.max()-values.min()
+                    df[c]=(values-values.min())/(span if pd.notna(span) and span!=0 else 1)
+                elif op=="log_transform": df[c]=np.log1p(values.clip(lower=0))
+                else: df[c+"__squared"]=values**2
+        else: raise HTTPException(400,"Unknown feature engineering operation.")
+    data_dir,_,_,_=user_workspace(user_id)
+    datasets[(user_id,dataset_id)]=df
+    df.to_csv(artifact_path(data_dir,dataset_id,".csv"),index=False)
+    return {"dataset_id":dataset_id,"operation":op,"saved_locally":True,**profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/chart")
 def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(current_user)):
@@ -358,6 +400,8 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
     y=payload.get("y")
     rows=max(1,min(int(payload.get("rows",20)),500))
     agg=payload.get("aggregation","mean")
+    if kind not in {"bar","line","area","scatter","pie","count","histogram","heatmap"}:
+        raise HTTPException(400,"Choose a supported chart type.")
     if kind=="heatmap":
         numeric=df.select_dtypes(include=np.number).iloc[:,:12]
         corr=numeric.corr().round(3).replace({np.nan:None})
@@ -429,66 +473,172 @@ def train(req: Train, user_id: str = Depends(current_user)):
             TRAINING_USERS.discard(user_id)
 
 def run_training(req: Train, user_id: str):
-    source_df=get_df(req.dataset_id,user_id)
-    if req.target not in source_df.columns: raise HTTPException(400,"Target column not found.")
-    df=source_df.dropna(subset=[req.target]).copy()
-    sampled_for_memory=len(df)>8000
+    source_df = get_df(req.dataset_id, user_id)
+    if req.target not in source_df.columns:
+        raise HTTPException(400, "Target column not found.")
+    df = source_df.dropna(subset=[req.target]).copy()
+    if req.task == "classification" and df[req.target].nunique(dropna=True) > 100:
+        raise HTTPException(400, "Classification supports up to 100 target classes. Choose a categorical target or use regression for a continuous numeric target.")
+    if req.task == "regression":
+        if not pd.api.types.is_numeric_dtype(df[req.target]):
+            raise HTTPException(400, "Regression requires a numeric target. Choose a numeric target column or select classification.")
+        df[req.target] = pd.to_numeric(df[req.target], errors="coerce")
+        df = df[np.isfinite(df[req.target].astype(float))].copy()
+    if df[req.target].nunique(dropna=True) < 2 or len(df) < 10:
+        raise HTTPException(400, "Need at least 10 usable rows and at least 2 target values.")
+
+    sampled_for_memory = len(df) > 8000
     if sampled_for_memory:
-        sample_stratify=df[req.target] if req.task=="classification" and df[req.target].value_counts().min()>=2 else None
-        df,_=train_test_split(df,train_size=8000,random_state=req.random_state,stratify=sample_stratify)
-    if req.task=="classification" and df[req.target].nunique(dropna=True)>100: raise HTTPException(400,"Target has more than 100 classes. Choose another target or use regression for a continuous numeric target.")
-    if req.task=="regression" and not pd.api.types.is_numeric_dtype(df[req.target]): raise HTTPException(400,"Regression requires a numeric target.")
-    if df[req.target].nunique()<2 or len(df)<10: raise HTTPException(400,"Need at least 10 rows and 2 target values.")
-    cols=[c for c in (req.selected_features or df.columns.tolist()) if c in df and c!=req.target]
-    X=df[cols].dropna(axis=1,how="all").copy()
-    y=df[req.target].astype(str) if req.task=="classification" else df[req.target]
-    for c in X.select_dtypes(include=np.number).columns: X[c]=pd.to_numeric(X[c],errors="coerce").astype(np.float32)
+        stratify_sample = None
+        if req.task == "classification":
+            counts = df[req.target].value_counts()
+            if len(counts) <= 100 and counts.min() >= 2:
+                stratify_sample = df[req.target]
+        try:
+            df, _ = train_test_split(df, train_size=8000, random_state=req.random_state, stratify=stratify_sample)
+        except ValueError:
+            df = df.sample(n=8000, random_state=req.random_state)
+
+    if req.selected_features is None:
+        input_feature_cols = [c for c in df.columns if c != req.target]
+    else:
+        unknown_features = [c for c in req.selected_features if c not in df.columns]
+        if unknown_features:
+            raise HTTPException(400, "Unknown input feature columns: " + ", ".join(unknown_features))
+        input_feature_cols = [c for c in req.selected_features if c != req.target]
+    if not input_feature_cols:
+        raise HTTPException(400, "Select at least one input feature. The target column cannot also be an input feature.")
+
+    X = df[input_feature_cols].copy().dropna(axis=1, how="all")
+    input_feature_cols = X.columns.tolist()
+    if not input_feature_cols:
+        raise HTTPException(400, "All selected input features contain only missing values. Select other columns or preprocess the dataset.")
+    if req.drop_high_missing:
+        X = X.loc[:, X.isna().mean() <= .8]
+        input_feature_cols = [c for c in input_feature_cols if c in X.columns]
+    if X.shape[1] == 0:
+        raise HTTPException(400, "No usable input features remain after missing-value filtering.")
+
+    for c in X.select_dtypes(include=np.number).columns:
+        X[c] = pd.to_numeric(X[c], errors="coerce").astype(np.float32)
     for c in list(X.columns):
         if pd.api.types.is_datetime64_any_dtype(X[c]):
-            dt=pd.to_datetime(X[c],errors="coerce")
-            X[c+"__year"]=dt.dt.year.astype(np.float32); X[c+"__month"]=dt.dt.month.astype(np.float32); X=X.drop(columns=[c])
-    if req.drop_high_missing: X=X.loc[:,X.isna().mean()<=.8]
-    if X.shape[1]==0: raise HTTPException(400,"No usable input features.")
-    strat=y if req.task=="classification" and y.value_counts().min()>=2 else None
-    try: Xtr,Xte,ytr,yte=train_test_split(X,y,test_size=req.test_size,random_state=req.random_state,stratify=strat)
-    except ValueError as e: raise HTTPException(400,f"Could not split data: {e}") from e
-    pool=candidates(req.task)
-    chosen=pool if req.mode=="auto" else {req.model_name:pool[req.model_name]} if req.model_name in pool else {}
-    if not chosen: raise HTTPException(400,"Selected model is not available for this task.")
-    leaderboard=[]; best=None; best_pipe=None; best_predictions=[]; best_actual=[]
-    for name,est in chosen.items():
-        pipe=None; pred=None
+            dt = pd.to_datetime(X[c], errors="coerce")
+            X[c + "__year"] = dt.dt.year.astype(np.float32)
+            X[c + "__month"] = dt.dt.month.astype(np.float32)
+            X = X.drop(columns=[c])
+
+    y = df[req.target].astype(str) if req.task == "classification" else df[req.target].astype(np.float64)
+    test_rows = max(2, int(np.ceil(len(X) * req.test_size)))
+    test_rows = min(test_rows, len(X) - 2)
+    stratify = None
+    if req.task == "classification":
+        counts = y.value_counts()
+        if counts.min() >= 2 and test_rows >= len(counts) and (len(X) - test_rows) >= len(counts):
+            stratify = y
+    try:
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=test_rows, random_state=req.random_state, stratify=stratify)
+    except ValueError as exc:
+        raise HTTPException(400, "Could not split the dataset. Increase the dataset size or adjust the test split. " + str(exc)) from exc
+
+    pool = candidates(req.task)
+    if req.mode == "auto":
+        chosen = pool
+    else:
+        chosen = {req.model_name: pool[req.model_name]} if req.model_name in pool else {}
+    if not chosen:
+        raise HTTPException(400, "The selected model is not available for the chosen task. Refresh the model selection and try again.")
+
+    leaderboard = []
+    best = None
+    best_pipe = None
+    best_predictions = []
+    best_actual = []
+    class_labels = list(pd.unique(y)) if req.task == "classification" else []
+
+    for name, estimator in chosen.items():
+        pipeline = None
+        predictions = None
         try:
-            pipe=make_pipeline(Xtr,est,req.scale_numeric,req.feature_selection,req.k_features,req.pca_components if req.use_pca else 0,req.task)
-            pipe.fit(Xtr,ytr); pred=pipe.predict(Xte)
-            if req.task=="classification":
-                metrics={"accuracy":round(float(accuracy_score(yte,pred)),4),"balanced_accuracy":round(float(balanced_accuracy_score(yte,pred)),4),"precision_weighted":round(float(precision_score(yte,pred,average="weighted",zero_division=0)),4),"recall_weighted":round(float(recall_score(yte,pred,average="weighted",zero_division=0)),4),"f1_weighted":round(float(f1_score(yte,pred,average="weighted",zero_division=0)),4)}
-                labels=list(pd.Series(yte).unique()); evaluation={"metrics":metrics,"confusion_matrix":{"labels":[str(v) for v in labels],"matrix":confusion_matrix(yte,pred,labels=labels).tolist()}}; score=metrics["f1_weighted"]
+            pipeline = make_pipeline(Xtr, estimator, req.scale_numeric, req.feature_selection, req.k_features, req.pca_components if req.use_pca else 0, req.task)
+            pipeline.fit(Xtr, ytr)
+            predictions = pipeline.predict(Xte)
+            if req.task == "classification":
+                metrics = {
+                    "accuracy": round(float(accuracy_score(yte, predictions)), 4),
+                    "balanced_accuracy": round(float(balanced_accuracy_score(yte, predictions)), 4),
+                    "precision_weighted": round(float(precision_score(yte, predictions, average="weighted", zero_division=0)), 4),
+                    "recall_weighted": round(float(recall_score(yte, predictions, average="weighted", zero_division=0)), 4),
+                    "f1_weighted": round(float(f1_score(yte, predictions, average="weighted", zero_division=0)), 4)
+                }
+                matrix = confusion_matrix(yte, predictions, labels=class_labels).tolist()
+                evaluation = {"metrics": metrics, "confusion_matrix": {"labels": [str(v) for v in class_labels], "matrix": matrix}}
+                score = metrics["f1_weighted"]
+                score_name = "f1_weighted"
             else:
-                mse=mean_squared_error(yte,pred); metrics={"r2":round(float(r2_score(yte,pred)),4),"mae":round(float(mean_absolute_error(yte,pred)),4),"rmse":round(float(np.sqrt(mse)),4),"mse":round(float(mse),4)}
-                evaluation={"metrics":metrics}; score=metrics["r2"]
-            leaderboard.append({"model_name":name,"metrics":metrics,"primary_score":score})
-            if best is None or not np.isfinite(best["primary_score"]) or (np.isfinite(score) and score>best["primary_score"]):
-                best={"model_name":name,"metrics":metrics,"evaluation":evaluation,"primary_score":score}
-                best_pipe=pipe; best_predictions=[serial(v) for v in pred]; best_actual=[serial(v) for v in yte]; pipe=None
-        except Exception as e:
-            leaderboard.append({"model_name":name,"error":str(e),"metrics":{},"primary_score":None})
+                mse = mean_squared_error(yte, predictions)
+                r2 = float(r2_score(yte, predictions, force_finite=True))
+                mae = float(mean_absolute_error(yte, predictions))
+                metrics = {"r2": round(r2, 4), "mae": round(mae, 4), "rmse": round(float(np.sqrt(mse)), 4), "mse": round(float(mse), 4)}
+                evaluation = {"metrics": metrics}
+                score = r2 if np.isfinite(r2) else -mae
+                score_name = "r2" if np.isfinite(r2) else "negative_mae"
+
+            leaderboard.append({"model_name": name, "status": "completed", "primary_metric": score_name, "primary_score": round(float(score), 4), **metrics})
+            if best is None or score > best["primary_score"]:
+                best = {"model_name": name, "metrics": metrics, "evaluation": evaluation, "primary_score": float(score)}
+                best_pipe = pipeline
+                best_predictions = [serial(value) for value in predictions]
+                best_actual = [serial(value) for value in yte]
+                pipeline = None
+        except Exception as exc:
+            leaderboard.append({"model_name": name, "status": "failed", "primary_metric": None, "primary_score": None, "error": str(exc)})
         finally:
-            if pipe is not None: del pipe
-            if pred is not None: del pred
-            del est
+            if pipeline is not None:
+                del pipeline
+            if predictions is not None:
+                del predictions
+            del estimator
             gc.collect()
-    successful=[r for r in leaderboard if "error" not in r]
+
+    successful = [row for row in leaderboard if row["status"] == "completed"]
     if not successful or best is None or best_pipe is None:
-        raise HTTPException(400,"All candidate models failed: "+"; ".join(r["model_name"]+": "+r.get("error","") for r in leaderboard))
-    leaderboard=sorted(successful,key=lambda r:r["primary_score"] if r["primary_score"] is not None else -999,reverse=True)
-    _,model_dir,job_dir,_=user_workspace(user_id); mid=str(uuid.uuid4()); created=datetime.now().isoformat()
-    model_data={"pipeline":best_pipe,"task":req.task,"target":req.target,"feature_cols":cols,"model_name":best["model_name"],"dataset_id":req.dataset_id,"created_at":created}
-    models[(user_id,mid)]=model_data; joblib.dump(model_data,model_dir/f"{mid}.joblib",compress=3)
-    job={"job_id":mid,"model_id":mid,"dataset_id":req.dataset_id,"target":req.target,"task":req.task,"mode":req.mode,"best_model":best["model_name"],"created_at":created,"train_rows":len(Xtr),"test_rows":len(Xte),"leaderboard":[{"model_name":r["model_name"],"primary_score":r["primary_score"],**r["metrics"]} for r in leaderboard]}
-    (job_dir/f"{mid}.json").write_text(json.dumps(job,indent=2),encoding="utf-8")
-    response={"model_id":mid,"task":req.task,"target":req.target,"mode":req.mode,"best_model":best["model_name"],"feature_columns":cols,"train_rows":len(Xtr),"test_rows":len(Xte),"results":[{"model_name":best["model_name"],"metrics":best["metrics"],"evaluation":best["evaluation"],"predictions":best_predictions,"actual":best_actual}],"leaderboard":job["leaderboard"],"best_evaluation":best["evaluation"],"warnings":["Models are trained sequentially to reduce peak memory usage.","Only the best model predictions are retained.","Preprocessing is fitted on the training split.","Holdout metrics are estimates; repeated tuning can overfit the holdout."].concat(sampled_for_memory ? ["Dataset exceeded 8,000 rows; a stratified random sample of 8,000 rows was used to stay within the free server memory limit."] : []),"saved_locally":True}
-    del source_df,df,X,y,Xtr,Xte,ytr,yte,best_pipe,model_data
+        details = "; ".join(row["model_name"] + ": " + row.get("error", "Unknown error") for row in leaderboard)
+        raise HTTPException(400, "All selected models failed. " + details)
+    leaderboard.sort(key=lambda row: row["primary_score"] if row["primary_score"] is not None else -float("inf"), reverse=True)
+
+    _, model_dir, job_dir, _ = user_workspace(user_id)
+    model_id = str(uuid.uuid4())
+    created = datetime.now().isoformat()
+    model_data = {"pipeline": best_pipe, "task": req.task, "target": req.target, "feature_cols": input_feature_cols, "model_name": best["model_name"], "dataset_id": req.dataset_id, "created_at": created}
+    joblib.dump(model_data, model_dir / (model_id + ".joblib"), compress=3)
+    models[(user_id, model_id)] = model_data
+
+    job = {
+        "job_id": model_id, "model_id": model_id, "dataset_id": req.dataset_id,
+        "target": req.target, "task": req.task, "mode": req.mode,
+        "best_model": best["model_name"], "created_at": created,
+        "train_rows": len(Xtr), "test_rows": len(Xte), "leaderboard": leaderboard
+    }
+    (job_dir / (model_id + ".json")).write_text(json.dumps(job, indent=2), encoding="utf-8")
+
+    warning_messages = [
+        "Models were trained sequentially to reduce peak memory usage.",
+        "Only the best model and its evaluation predictions were retained.",
+        "Preprocessing was fitted on the training split."
+    ]
+    if sampled_for_memory:
+        warning_messages.append("The dataset exceeded 8,000 usable rows. A reproducible sample of 8,000 rows was used to stay within the free server memory limit.")
+
+    response = {
+        "model_id": model_id, "task": req.task, "target": req.target, "mode": req.mode,
+        "best_model": best["model_name"], "feature_columns": input_feature_cols,
+        "train_rows": len(Xtr), "test_rows": len(Xte),
+        "results": [{"model_name": best["model_name"], "metrics": best["metrics"], "evaluation": best["evaluation"], "predictions": best_predictions, "actual": best_actual}],
+        "leaderboard": leaderboard, "best_evaluation": best["evaluation"],
+        "warnings": warning_messages, "saved_locally": True
+    }
+    del source_df, df, X, y, Xtr, Xte, ytr, yte, best_pipe, model_data
     gc.collect()
     return response
 
