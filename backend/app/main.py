@@ -653,6 +653,7 @@ class Train(BaseModel):
 
 TRAINING_JOBS: dict[tuple[str, str], dict[str, Any]] = {}
 TRAINING_CANCEL_EVENTS: dict[tuple[str, str], threading.Event] = {}
+TRAINING_SKIP_MODELS: dict[tuple[str, str], set[str]] = {}
 TRAINING_JOBS_LOCK = threading.Lock()
 TRAINING_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="automl-training")
 MAX_QUEUED_JOBS_PER_USER = 3
@@ -721,6 +722,7 @@ def execute_training_job(req: Train, user_id: str, job_id: str):
                 snapshot = dict(TRAINING_JOBS[key])
         persist_training_record(user_id, snapshot)
     finally:
+        TRAINING_SKIP_MODELS.pop(key, None)
         gc.collect()
 
 @app.post("/api/train")
@@ -743,6 +745,7 @@ def train(req: Train, user_id: str = Depends(current_user)):
             "current_model": None, "eta_seconds": None
         }
         TRAINING_CANCEL_EVENTS[(user_id, job_id)] = threading.Event()
+        TRAINING_SKIP_MODELS[(user_id, job_id)] = set()
         queued_record = dict(TRAINING_JOBS[(user_id, job_id)])
     persist_training_record(user_id, queued_record)
     try:
@@ -781,6 +784,7 @@ def retry_training_job(job_id: str, req: Train | None = None, user_id: str = Dep
         }
         TRAINING_JOBS[(user_id, new_id)] = record
         TRAINING_CANCEL_EVENTS[(user_id, new_id)] = threading.Event()
+        TRAINING_SKIP_MODELS[(user_id, new_id)] = set()
     persist_training_record(user_id, record)
     try:
         TRAINING_EXECUTOR.submit(execute_training_job, req, user_id, new_id)
@@ -834,6 +838,27 @@ def cancel_training_job(job_id: str, user_id: str = Depends(current_user)):
 @app.post("/api/training-jobs/{job_id}/cancel")
 def cancel_training_job_route(job_id: str, user_id: str = Depends(current_user)):
     return cancel_training_job(job_id, user_id)
+
+@app.post("/api/training-jobs/{job_id}/skip-current")
+def skip_current_model(job_id: str, user_id: str = Depends(current_user)):
+    try:
+        if str(uuid.UUID(job_id)) != job_id:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(404, "Training job not found.")
+    key = (user_id, job_id)
+    with TRAINING_JOBS_LOCK:
+        job = TRAINING_JOBS.get(key)
+        if job is None:
+            raise HTTPException(404, "Training job not found or no longer available.")
+        if job.get("status") != "running" or not job.get("current_model"):
+            raise HTTPException(409, "There is no active algorithm to skip right now.")
+        model_name = job["current_model"]
+        TRAINING_SKIP_MODELS.setdefault(key, set()).add(model_name)
+        job["skip_requested_model"] = model_name
+        snapshot = dict(job)
+    persist_training_record(user_id, snapshot)
+    return {"job_id": job_id, "status": "skip_requested", "model_name": model_name, "message": "The current fit cannot be interrupted safely. Its result will be discarded after fitting, and the remaining algorithms will continue."}
 
 def run_training(req: Train, user_id: str, assigned_model_id: str | None = None, cancel_event: threading.Event | None = None):
     if cancel_event and cancel_event.is_set():
@@ -963,6 +988,15 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
             pipeline.fit(Xtr, ytr)
             if cancel_event and cancel_event.is_set():
                 raise HTTPException(409, "Training was cancelled.")
+            skip_requested = False
+            if job_key:
+                with TRAINING_JOBS_LOCK:
+                    skip_requested = name in TRAINING_SKIP_MODELS.get(job_key, set())
+                    if skip_requested:
+                        TRAINING_SKIP_MODELS[job_key].discard(name)
+                if skip_requested:
+                    update_training_record(user_id, assigned_model_id, {"last_skipped_model": name, "skip_requested_model": None})
+                    continue
             predictions = pipeline.predict(Xte)
             if req.task == "classification":
                 metrics = {
