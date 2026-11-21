@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import gc, hashlib, io, json, os, re, threading, time, uuid, warnings
+import gc, hashlib, io, json, os, pickle, re, threading, time, uuid, warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -1092,8 +1092,18 @@ def download_predictions(export_id: str, user_id: str = Depends(current_user)):
 def download_model_pkl(model_id: str, user_id: str = Depends(current_user)):
     _, model_dir, job_dir, _ = user_workspace(user_id)
     path = artifact_path(model_dir, model_id, ".joblib")
+    pkl_path = artifact_path(model_dir, model_id, ".pkl")
     if not path.is_file():
         raise HTTPException(404, "Saved model file not found. It may have been removed from the server workspace.")
+    if not pkl_path.is_file():
+        try:
+            model_data = joblib.load(path)
+            with open(pkl_path, "wb") as model_file:
+                pickle.dump(model_data, model_file, protocol=pickle.HIGHEST_PROTOCOL)
+            del model_data
+            gc.collect()
+        except Exception as exc:
+            raise HTTPException(500, "Could not convert the saved model to standard PKL format: " + str(exc)) from exc
     metadata_path = artifact_path(job_dir, model_id, ".json")
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -1101,7 +1111,7 @@ def download_model_pkl(model_id: str, user_id: str = Depends(current_user)):
         metadata = {}
     safe = lambda value: (re.sub(r"[^A-Za-z0-9_-]+", "-", str(value or "model")).strip("-_")[:48] or "model")
     filename = "-".join([safe(metadata.get("best_model")), safe(metadata.get("task")), model_id[:8]]) + ".pkl"
-    return StreamingResponse(open(path, "rb"), media_type="application/octet-stream", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return StreamingResponse(open(pkl_path, "rb"), media_type="application/octet-stream", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 @app.get("/api/models/{model_id}/evaluation.csv")
 def download_evaluation_csv(model_id: str, user_id: str = Depends(current_user)):
