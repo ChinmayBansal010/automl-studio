@@ -856,6 +856,10 @@ def skip_current_model(job_id: str, user_id: str = Depends(current_user)):
         model_name = job["current_model"]
         TRAINING_SKIP_MODELS.setdefault(key, set()).add(model_name)
         job["skip_requested_model"] = model_name
+        skipped_models = list(job.get("skipped_models") or [])
+        if model_name not in skipped_models:
+            skipped_models.append(model_name)
+        job["skipped_models"] = skipped_models
         snapshot = dict(job)
     persist_training_record(user_id, snapshot)
     return {"job_id": job_id, "status": "skip_requested", "model_name": model_name, "message": "The current fit cannot be interrupted safely. Its result will be discarded after fitting, and the remaining algorithms will continue."}
@@ -1047,6 +1051,8 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         raise HTTPException(409, "Training was cancelled.")
     successful = [row for row in leaderboard if row["status"] == "completed"]
     if not successful or best is None or best_pipe is None:
+        if not leaderboard:
+            raise HTTPException(409, "No models completed because all selected algorithms were skipped.")
         details = "; ".join(row["model_name"] + ": " + row.get("error", "Unknown error") for row in leaderboard)
         raise HTTPException(400, "All selected models failed. " + details)
     leaderboard.sort(key=lambda row: row["primary_score"] if row["primary_score"] is not None else -float("inf"), reverse=True)
