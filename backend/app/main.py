@@ -297,6 +297,35 @@ async def upload(file: UploadFile = File(...), user_id: str = Depends(current_us
     (data_dir/f"{did}.json").write_text(json.dumps({"dataset_id":did,"filename":file.filename,"saved_at":datetime.now().isoformat()}),encoding="utf-8")
     return {"dataset_id":did,"filename":file.filename,"saved_locally":True,**profile(df)}
 
+@app.post("/api/datasets/{dataset_id}/restore")
+async def restore_dataset_file(dataset_id: str, file: UploadFile = File(...), user_id: str = Depends(current_user)):
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(400,"Upload a .csv file.")
+    content=await file.read()
+    if not content or len(content)>LIMIT:
+        raise HTTPException(413 if content else 400,"CSV is empty or exceeds 100 MB.")
+    try:
+        df=clean(pd.read_csv(io.BytesIO(content),low_memory=False))
+    except Exception as exc:
+        raise HTTPException(400,"Could not restore the saved CSV: "+str(exc)) from exc
+    if df.empty:
+        raise HTTPException(400,"CSV has headers but no rows.")
+    data_dir,_,_,_=user_workspace(user_id)
+    path=artifact_path(data_dir,dataset_id,".csv")
+    datasets[(user_id,dataset_id)]=df
+    df.to_csv(path,index=False)
+    metadata={"dataset_id":dataset_id,"filename":file.filename,"saved_at":datetime.now().isoformat()}
+    artifact_path(data_dir,dataset_id,".json").write_text(json.dumps(metadata),encoding="utf-8")
+    return {"dataset_id":dataset_id,"filename":file.filename,"saved_locally":True,**profile(df)}
+
+@app.get("/api/datasets/{dataset_id}/download")
+def download_dataset_file(dataset_id: str, user_id: str = Depends(current_user)):
+    data_dir,_,_,_=user_workspace(user_id)
+    path=artifact_path(data_dir,dataset_id,".csv")
+    if not path.exists():
+        raise HTTPException(404,"Dataset file is not available on this server. Restore it from the browser backup.")
+    return StreamingResponse(open(path,"rb"),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=dataset.csv"})
+
 @app.get("/api/datasets/{dataset_id}/profile")
 def get_profile(dataset_id: str, user_id: str = Depends(current_user)): return profile(get_df(dataset_id, user_id))
 
@@ -444,7 +473,7 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
     rows=max(1,min(int(payload.get("rows",20)),500))
     agg=payload.get("aggregation","mean")
     columns=max(1,min(int(payload.get("columns",1)),6))
-    if kind not in {"bar","line","area","scatter","pie","count","histogram","heatmap"}:
+    if kind not in {"bar","line","area","scatter","pie","count","histogram","heatmap","density","box","radar"}:
         raise HTTPException(400,"Choose a supported chart type.")
     if kind=="heatmap":
         numeric=df.select_dtypes(include=np.number).iloc[:,:12]
@@ -453,6 +482,32 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
         corr=numeric.corr().round(3).replace({np.nan:None})
         data=[{"x":str(i),**{str(k):serial(v) for k,v in r.items()}} for i,r in corr.iterrows()]
         return {"chart_type":kind,"x":None,"y":None,"x_label":None,"y_label":None,"rows":rows,"columns":columns,"data":data}
+    if kind=="density":
+        if x not in df or not pd.api.types.is_numeric_dtype(df[x]):
+            raise HTTPException(400,"Choose a numeric column for the density chart.")
+        vals=pd.to_numeric(df[x],errors="coerce").replace([np.inf,-np.inf],np.nan).dropna()
+        counts,edges=np.histogram(vals,bins=min(rows,60),density=True) if len(vals) else ([],[])
+        data=[{"x":float((edges[i]+edges[i+1])/2),"value":float(counts[i])} for i in range(len(counts))]
+        return {"chart_type":kind,"x":x,"y":None,"x_label":x,"y_label":"Density","rows":rows,"columns":columns,"data":data}
+    if kind=="box":
+        if x not in df or y not in df or not pd.api.types.is_numeric_dtype(df[y]):
+            raise HTTPException(400,"Box plots require a category X axis and numeric Y axis.")
+        grouped=df.groupby(x,dropna=False)[y]
+        data=[]
+        for label,values in grouped:
+            values=pd.to_numeric(values,errors="coerce").replace([np.inf,-np.inf],np.nan).dropna()
+            if values.empty: continue
+            q1=float(values.quantile(.25)); median=float(values.median()); q3=float(values.quantile(.75))
+            data.append({"x":str(label),"min":float(values.min()),"q1":q1,"median":median,"q3":q3,"max":float(values.max()),"range":[median-q1,q3-median]})
+            if len(data)>=rows: break
+        return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
+    if kind=="radar":
+        if x not in df or y not in df or not pd.api.types.is_numeric_dtype(df[y]):
+            raise HTTPException(400,"Radar charts require a category X axis and numeric Y axis.")
+        grouped=df.groupby(x,dropna=False)[y]
+        values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
+        data=[{"x":str(label),"value":serial(value)} for label,value in values.items()]
+        return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
     if kind=="histogram":
         column=x if x in df else y
         if column not in df or not pd.api.types.is_numeric_dtype(df[column]):
@@ -499,6 +554,7 @@ class Train(BaseModel):
     task: str = Field(pattern="^(classification|regression)$")
     mode: str = Field(default="auto",pattern="^(auto|manual)$")
     model_name: str = "Random Forest"
+    model_names: list[str] | None = None
     test_size: float = Field(default=.2,ge=.1,le=.5)
     random_state: int = 42
     scale_numeric: bool = True
@@ -556,7 +612,7 @@ def train(req: Train, user_id: str = Depends(current_user)):
         queue_position = sum(1 for job in TRAINING_JOBS.values() if job["status"] in {"queued", "running"}) + 1
         TRAINING_JOBS[(user_id, job_id)] = {
             "job_id": job_id, "status": "queued", "task": req.task, "target": req.target,
-            "mode": req.mode, "model_name": req.model_name, "queue_position": queue_position,
+            "mode": req.mode, "model_name": req.model_name, "model_names": req.model_names, "queue_position": queue_position,
             "created_at": datetime.now().isoformat(), "error": None, "result": None
         }
         TRAINING_CANCEL_EVENTS[(user_id, job_id)] = threading.Event()
@@ -633,7 +689,8 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
     if usable_target.nunique(dropna=True) < 2 or len(usable_indices) < 10:
         raise HTTPException(400, "Need at least 10 usable rows and at least 2 target values.")
 
-    sampled_for_memory = len(usable_indices) > 5000
+    max_training_rows = 2000
+    sampled_for_memory = len(usable_indices) > max_training_rows
     if sampled_for_memory:
         stratify_sample = None
         if req.task == "classification":
@@ -642,12 +699,12 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
                 stratify_sample = usable_target
         try:
             selected_indices, _ = train_test_split(
-                np.asarray(usable_indices), train_size=5000,
+                np.asarray(usable_indices), train_size=max_training_rows,
                 random_state=req.random_state, stratify=stratify_sample
             )
         except ValueError:
             selected_indices = np.random.default_rng(req.random_state).choice(
-                np.asarray(usable_indices), size=5000, replace=False
+                np.asarray(usable_indices), size=max_training_rows, replace=False
             )
         df = source_df.loc[selected_indices].copy()
     else:
@@ -701,7 +758,11 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
     if req.mode == "auto":
         chosen = pool
     else:
-        chosen = {req.model_name: pool[req.model_name]} if req.model_name in pool else {}
+        requested_names = req.model_names or [req.model_name]
+        unknown_names = [name for name in requested_names if name not in pool]
+        if unknown_names:
+            raise HTTPException(400, "Unavailable model selection: " + ", ".join(unknown_names))
+        chosen = {name: pool[name] for name in dict.fromkeys(requested_names)}
     if not chosen:
         raise HTTPException(400, "The selected model is not available for the chosen task. Refresh the model selection and try again.")
 
@@ -751,6 +812,8 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
                 best_predictions = [serial(value) for value in predictions]
                 best_actual = [serial(value) for value in yte]
                 pipeline = None
+        except MemoryError as exc:
+            raise HTTPException(503, "The server ran out of memory while fitting " + name + ". Select fewer models, reduce the dataset size, or use fewer input features, then retry.") from exc
         except Exception as exc:
             leaderboard.append({"model_name": name, "status": "failed", "primary_metric": None, "primary_score": None, "error": str(exc)})
         finally:
@@ -789,7 +852,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         "Preprocessing was fitted on the training split."
     ]
     if sampled_for_memory:
-        warning_messages.append("The dataset exceeded 5,000 usable rows. A reproducible sample of 5,000 rows was used to stay within the free server memory limit.")
+        warning_messages.append("The dataset exceeded 2,000 usable rows. A reproducible sample of 2,000 rows was used to stay within the free server memory limit.")
 
     response = {
         "model_id": model_id, "task": req.task, "target": req.target, "mode": req.mode,
