@@ -528,28 +528,42 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
     source_df = get_df(req.dataset_id, user_id)
     if req.target not in source_df.columns:
         raise HTTPException(400, "Target column not found.")
-    df = source_df.dropna(subset=[req.target]).copy()
-    if req.task == "classification" and df[req.target].nunique(dropna=True) > 100:
-        raise HTTPException(400, "Classification supports up to 100 target classes. Choose a categorical target or use regression for a continuous numeric target.")
+    target_values = source_df[req.target]
     if req.task == "regression":
-        if not pd.api.types.is_numeric_dtype(df[req.target]):
+        if not pd.api.types.is_numeric_dtype(target_values):
             raise HTTPException(400, "Regression requires a numeric target. Choose a numeric target column or select classification.")
-        df[req.target] = pd.to_numeric(df[req.target], errors="coerce")
-        df = df[np.isfinite(df[req.target].astype(float))].copy()
-    if df[req.target].nunique(dropna=True) < 2 or len(df) < 10:
+        valid_target = target_values.notna() & np.isfinite(pd.to_numeric(target_values, errors="coerce"))
+    else:
+        valid_target = target_values.notna()
+
+    usable_indices = source_df.index[valid_target]
+    usable_target = source_df.loc[usable_indices, req.target]
+    if req.task == "classification" and usable_target.nunique(dropna=True) > 100:
+        raise HTTPException(400, "Classification supports up to 100 target classes. Choose a categorical target or use regression for a continuous numeric target.")
+    if usable_target.nunique(dropna=True) < 2 or len(usable_indices) < 10:
         raise HTTPException(400, "Need at least 10 usable rows and at least 2 target values.")
 
-    sampled_for_memory = len(df) > 5000
+    sampled_for_memory = len(usable_indices) > 5000
     if sampled_for_memory:
         stratify_sample = None
         if req.task == "classification":
-            counts = df[req.target].value_counts()
+            counts = usable_target.value_counts()
             if len(counts) <= 100 and counts.min() >= 2:
-                stratify_sample = df[req.target]
+                stratify_sample = usable_target
         try:
-            df, _ = train_test_split(df, train_size=5000, random_state=req.random_state, stratify=stratify_sample)
+            selected_indices, _ = train_test_split(
+                np.asarray(usable_indices), train_size=5000,
+                random_state=req.random_state, stratify=stratify_sample
+            )
         except ValueError:
-            df = df.sample(n=5000, random_state=req.random_state)
+            selected_indices = np.random.default_rng(req.random_state).choice(
+                np.asarray(usable_indices), size=5000, replace=False
+            )
+        df = source_df.loc[selected_indices].copy()
+    else:
+        df = source_df.loc[usable_indices].copy()
+    if req.task == "regression":
+        df[req.target] = pd.to_numeric(df[req.target], errors="coerce").astype(np.float64)
 
     if req.selected_features is None:
         input_feature_cols = [c for c in df.columns if c != req.target]
