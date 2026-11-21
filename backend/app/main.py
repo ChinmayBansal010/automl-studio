@@ -693,7 +693,15 @@ def execute_training_job(req: Train, user_id: str, job_id: str):
         result = run_training(req, user_id, job_id, cancel_event)
         with TRAINING_JOBS_LOCK:
             if key in TRAINING_JOBS:
-                TRAINING_JOBS[key].update({"status": "completed", "result": result, "error": None, "finished_at": datetime.now().isoformat(), "progress_pct": 100, "eta_seconds": 0})
+                TRAINING_JOBS[key].update({
+                    "status": "completed", "result": result, "error": None,
+                    "finished_at": datetime.now().isoformat(), "progress_pct": 100,
+                    "eta_seconds": 0, "model_id": result.get("model_id"),
+                    "best_model": result.get("best_model"),
+                    "train_rows": result.get("train_rows"), "test_rows": result.get("test_rows"),
+                    "leaderboard": result.get("leaderboard"),
+                    "best_evaluation": result.get("best_evaluation")
+                })
                 snapshot = dict(TRAINING_JOBS[key])
         persist_training_record(user_id, snapshot)
     except HTTPException as exc:
