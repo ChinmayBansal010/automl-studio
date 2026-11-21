@@ -64,7 +64,14 @@ async def api_rate_limit(request: Request, call_next):
         limit = 120
     window = 60.0
     now = time.monotonic()
-    key = (identity, path.split("/{", 1)[0])
+    route_key = path
+    if path.startswith("/api/datasets/"):
+        parts = path.strip("/").split("/")
+        if len(parts) >= 4 and parts[3] in {"preprocess", "feature-engineering", "chart", "eda"}:
+            route_key = "/api/datasets/{dataset_id}/" + parts[3]
+    elif path.startswith("/api/training-jobs/"):
+        route_key = "/api/training-jobs/{job_id}"
+    key = (identity, route_key)
     with RATE_LIMIT_LOCK:
         started, count = RATE_LIMITS.get(key, (now, 0))
         if now - started >= window:
