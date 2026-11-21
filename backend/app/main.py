@@ -464,7 +464,7 @@ def run_training(req: Train, user_id: str):
                 mse=mean_squared_error(yte,pred); metrics={"r2":round(float(r2_score(yte,pred)),4),"mae":round(float(mean_absolute_error(yte,pred)),4),"rmse":round(float(np.sqrt(mse)),4),"mse":round(float(mse),4)}
                 evaluation={"metrics":metrics}; score=metrics["r2"]
             leaderboard.append({"model_name":name,"metrics":metrics,"primary_score":score})
-            if best is None or (np.isfinite(score) and score>best["primary_score"]):
+            if best is None or not np.isfinite(best["primary_score"]) or (np.isfinite(score) and score>best["primary_score"]):
                 best={"model_name":name,"metrics":metrics,"evaluation":evaluation,"primary_score":score}
                 best_pipe=pipe; best_predictions=[serial(v) for v in pred]; best_actual=[serial(v) for v in yte]; pipe=None
         except Exception as e:
