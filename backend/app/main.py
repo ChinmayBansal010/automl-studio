@@ -207,20 +207,33 @@ def profile(df: pd.DataFrame) -> dict[str, Any]:
         "constant_columns":[c for c in df if df[c].nunique(dropna=False)<=1],
         "preview":[{k:serial(v) for k,v in row.items()} for row in df.head(10).to_dict("records")]}
 
+def available_memory_mb() -> float | None:
+    try:
+        limit_path=Path("/sys/fs/cgroup/memory.max")
+        current_path=Path("/sys/fs/cgroup/memory.current")
+        if limit_path.exists() and current_path.exists():
+            limit_text=limit_path.read_text().strip()
+            if limit_text=="max": return None
+            limit=int(limit_text); current=int(current_path.read_text().strip())
+            return max(0.0,(limit-current)/1048576)
+    except (OSError,ValueError):
+        return None
+    return None
+
 def candidates(task: str) -> dict[str, Any]:
     if task == "classification":
         return {"Logistic Regression":LogisticRegression(max_iter=1500,class_weight="balanced"),
             "Decision Tree":DecisionTreeClassifier(random_state=42,class_weight="balanced"),
-            "Random Forest":RandomForestClassifier(n_estimators=50,max_depth=12,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
-            "Extra Trees":ExtraTreesClassifier(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
+            "Random Forest":RandomForestClassifier(n_estimators=30,max_depth=10,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
+            "Extra Trees":ExtraTreesClassifier(n_estimators=30,max_depth=12,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
             "Gradient Boosting":GradientBoostingClassifier(random_state=42),
             "Histogram Gradient Boosting":HistGradientBoostingClassifier(random_state=42),
             "AdaBoost":AdaBoostClassifier(random_state=42),"K-Nearest Neighbors":KNeighborsClassifier(),
             "Support Vector Machine":SVC(kernel="linear",class_weight="balanced",probability=False),"Naive Bayes":GaussianNB(),
             "Neural Network (MLP)":MLPClassifier(hidden_layer_sizes=(32,16),max_iter=150,early_stopping=True,random_state=42)}
     return {"Ridge Regression":Ridge(),"Decision Tree":DecisionTreeRegressor(random_state=42),
-        "Random Forest":RandomForestRegressor(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1),
-        "Extra Trees":ExtraTreesRegressor(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1),
+        "Random Forest":RandomForestRegressor(n_estimators=30,max_depth=12,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1),
+        "Extra Trees":ExtraTreesRegressor(n_estimators=30,max_depth=12,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1),
         "Gradient Boosting":GradientBoostingRegressor(random_state=42),
         "Histogram Gradient Boosting":HistGradientBoostingRegressor(random_state=42),
         "AdaBoost":AdaBoostRegressor(random_state=42),"K-Nearest Neighbors":KNeighborsRegressor(),
@@ -689,7 +702,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
     if usable_target.nunique(dropna=True) < 2 or len(usable_indices) < 10:
         raise HTTPException(400, "Need at least 10 usable rows and at least 2 target values.")
 
-    max_training_rows = 2000
+    max_training_rows = 1500
     sampled_for_memory = len(usable_indices) > max_training_rows
     if sampled_for_memory:
         stratify_sample = None
@@ -774,6 +787,9 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
     class_labels = list(pd.unique(y)) if req.task == "classification" else []
 
     for name, estimator in chosen.items():
+        headroom=available_memory_mb()
+        if headroom is not None and headroom < 160:
+            raise HTTPException(503, "Training paused before starting " + name + " because the server has less than 160 MB free memory. Select fewer models, reduce input features, or use a smaller dataset, then retry.")
         if cancel_event and cancel_event.is_set():
             raise HTTPException(409, "Training was cancelled.")
         pipeline = None
@@ -852,7 +868,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         "Preprocessing was fitted on the training split."
     ]
     if sampled_for_memory:
-        warning_messages.append("The dataset exceeded 2,000 usable rows. A reproducible sample of 2,000 rows was used to stay within the free server memory limit.")
+        warning_messages.append("The dataset exceeded 2,000 usable rows. A reproducible sample of 1,500 rows was used to stay within the free server memory limit.")
 
     response = {
         "model_id": model_id, "task": req.task, "target": req.target, "mode": req.mode,
