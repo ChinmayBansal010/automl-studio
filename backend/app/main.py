@@ -401,46 +401,55 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
     y=payload.get("y")
     rows=max(1,min(int(payload.get("rows",20)),500))
     agg=payload.get("aggregation","mean")
+    columns=max(1,min(int(payload.get("columns",1)),6))
     if kind not in {"bar","line","area","scatter","pie","count","histogram","heatmap"}:
         raise HTTPException(400,"Choose a supported chart type.")
     if kind=="heatmap":
         numeric=df.select_dtypes(include=np.number).iloc[:,:12]
+        if numeric.shape[1] < 2:
+            return {"chart_type":kind,"x":None,"y":None,"x_label":None,"y_label":None,"rows":rows,"columns":columns,"data":[],"message":"Heatmap requires at least two numeric columns."}
         corr=numeric.corr().round(3).replace({np.nan:None})
         data=[{"x":str(i),**{str(k):serial(v) for k,v in r.items()}} for i,r in corr.iterrows()]
-        return {"chart_type":kind,"x":None,"y":None,"rows":rows,"columns":max(1,min(int(payload.get("columns",1)),6)),"data":data}
+        return {"chart_type":kind,"x":None,"y":None,"x_label":None,"y_label":None,"rows":rows,"columns":columns,"data":data}
     if kind=="histogram":
         column=x if x in df else y
         if column not in df or not pd.api.types.is_numeric_dtype(df[column]):
             raise HTTPException(400,"Choose a numeric column for the histogram.")
-        vals=pd.to_numeric(df[column],errors="coerce").dropna()
+        vals=pd.to_numeric(df[column],errors="coerce").replace([np.inf,-np.inf],np.nan).dropna()
         counts,edges=np.histogram(vals,bins=min(rows,60)) if len(vals) else ([],[])
         data=[{"x":f"{edges[i]:.4g}–{edges[i+1]:.4g}","value":int(counts[i])} for i in range(len(counts))]
-        return {"chart_type":kind,"x":column,"y":None,"rows":rows,"columns":max(1,min(int(payload.get("columns",1)),6)),"data":data}
+        return {"chart_type":kind,"x":column,"y":None,"x_label":column,"y_label":"Frequency","rows":rows,"columns":columns,"data":data}
     if x not in df:
         raise HTTPException(400,"Choose a valid category or X-axis column.")
     if kind in ("pie","count"):
         data=[{"x":str(k),"value":int(v)} for k,v in df[x].astype("string").fillna("(Missing)").value_counts().head(rows).items()]
-    elif kind in ("line","area","scatter"):
+        return {"chart_type":kind,"x":x,"y":None,"x_label":None,"y_label":None,"rows":rows,"columns":columns,"data":data}
+    if kind=="scatter":
         if y not in df:
             raise HTTPException(400,"Choose a valid Y-axis column.")
-        if kind=="scatter":
-            if not pd.api.types.is_numeric_dtype(df[x]) or not pd.api.types.is_numeric_dtype(df[y]):
-                raise HTTPException(400,"Scatter plots require numeric X and Y columns.")
-            data=[{"x":serial(a),"value":serial(b)} for a,b in zip(df[x].head(rows),df[y].head(rows)) if pd.notna(a) and pd.notna(b)]
-        else:
-            if not pd.api.types.is_numeric_dtype(df[y]):
-                raise HTTPException(400,"Choose a numeric Y-axis column.")
-            grouped=df.groupby(x,dropna=False)[y]
-            values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
-            data=[{"x":str(k),"value":serial(v)} for k,v in values.items()]
+        if not pd.api.types.is_numeric_dtype(df[x]) or not pd.api.types.is_numeric_dtype(df[y]):
+            raise HTTPException(400,"Scatter plots require numeric X and Y columns.")
+        pairs=pd.DataFrame({"x":pd.to_numeric(df[x],errors="coerce"),"value":pd.to_numeric(df[y],errors="coerce")}).replace([np.inf,-np.inf],np.nan).dropna().head(rows)
+        data=[{"x":serial(a),"value":serial(b)} for a,b in zip(pairs["x"],pairs["value"])]
+        return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
+    if kind in ("line","area"):
+        if y not in df:
+            raise HTTPException(400,"Choose a valid Y-axis column.")
+        if not pd.api.types.is_numeric_dtype(df[y]):
+            raise HTTPException(400,"Choose a numeric Y-axis column.")
+        grouped=df.groupby(x,dropna=False)[y]
+        values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
+        data=[{"x":str(k),"value":serial(v)} for k,v in values.items()]
+        return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
+    if y in df and pd.api.types.is_numeric_dtype(df[y]):
+        grouped=df.groupby(x,dropna=False)[y]
+        values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
+        data=[{"x":str(k),"value":serial(v)} for k,v in values.items()]
+        y_label=y
     else:
-        if y in df and pd.api.types.is_numeric_dtype(df[y]):
-            grouped=df.groupby(x,dropna=False)[y]
-            values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
-            data=[{"x":str(k),"value":serial(v)} for k,v in values.items()]
-        else:
-            data=[{"x":str(k),"value":int(v)} for k,v in df[x].astype("string").fillna("(Missing)").value_counts().head(rows).items()]
-    return {"chart_type":kind,"x":x,"y":y if kind not in ("pie","count","histogram") else None,"rows":rows,"columns":max(1,min(int(payload.get("columns",1)),6)),"data":data}
+        data=[{"x":str(k),"value":int(v)} for k,v in df[x].astype("string").fillna("(Missing)").value_counts().head(rows).items()]
+        y_label="Count"
+    return {"chart_type":kind,"x":x,"y":y if y in df else None,"x_label":x,"y_label":y_label,"rows":rows,"columns":columns,"data":data}
 
 class Train(BaseModel):
     dataset_id: str

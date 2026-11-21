@@ -102,6 +102,22 @@ class TrainingTests(unittest.TestCase):
                 main.training_job_status(first["job_id"], "another-user")
             self.assertEqual(denied.exception.status_code, 404)
 
+
+    def test_chart_returns_explicit_axis_labels_for_bar_chart(self):
+        frame = pd.DataFrame({"category": ["A", "A", "B", "B"], "amount": [2, 4, 6, 8]})
+        with patch.object(main, "get_df", return_value=frame):
+            result = main.chart("dataset-test", {"chart_type": "bar", "x": "category", "y": "amount", "aggregation": "mean"}, "training-test-user")
+        self.assertEqual(result["x_label"], "category")
+        self.assertEqual(result["y_label"], "amount")
+        self.assertEqual(result["data"], [{"x": "A", "value": 3.0}, {"x": "B", "value": 7.0}])
+
+    def test_heatmap_explains_when_there_are_not_enough_numeric_columns(self):
+        frame = pd.DataFrame({"category": ["A", "B", "C"]})
+        with patch.object(main, "get_df", return_value=frame):
+            result = main.chart("dataset-test", {"chart_type": "heatmap"}, "training-test-user")
+        self.assertEqual(result["data"], [])
+        self.assertIn("at least two numeric columns", result["message"])
+
     def test_regression_rejects_categorical_target(self):
         frame = pd.DataFrame({
             "feature": np.arange(20, dtype=float),
