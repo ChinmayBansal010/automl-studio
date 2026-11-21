@@ -752,16 +752,17 @@ def train(req: Train, user_id: str = Depends(current_user)):
     return {"job_id": job_id, "status": "queued", "queue_position": queue_position, "message": "Training job added to the queue. Jobs run one at a time to protect the free server memory limit."}
 
 @app.post("/api/training-jobs/{job_id}/retry")
-def retry_training_job(job_id: str, user_id: str = Depends(current_user)):
+def retry_training_job(job_id: str, req: Train | None = None, user_id: str = Depends(current_user)):
     _, _, job_dir, _ = user_workspace(user_id)
-    source_path = artifact_path(job_dir, job_id, ".json")
-    if not source_path.is_file():
-        raise HTTPException(404, "Saved experiment configuration was not found.")
-    source = json.loads(source_path.read_text(encoding="utf-8"))
-    config = source.get("request_config")
-    if not config:
-        raise HTTPException(409, "This experiment does not contain a saved configuration and cannot be retried.")
-    req = Train(**config)
+    if req is None:
+        source_path = artifact_path(job_dir, job_id, ".json")
+        if not source_path.is_file():
+            raise HTTPException(404, "Saved experiment configuration was not found. Retry requires the saved configuration from your browser history.")
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        config = source.get("request_config")
+        if not config:
+            raise HTTPException(409, "This experiment does not contain a saved configuration and cannot be retried.")
+        req = Train(**config)
     with TRAINING_JOBS_LOCK:
         active = [job for (owner, _), job in TRAINING_JOBS.items() if owner == user_id and job.get("status") in {"queued", "running"}]
         if len(active) >= MAX_QUEUED_JOBS_PER_USER:
@@ -779,7 +780,11 @@ def retry_training_job(job_id: str, user_id: str = Depends(current_user)):
         TRAINING_JOBS[(user_id, new_id)] = record
         TRAINING_CANCEL_EVENTS[(user_id, new_id)] = threading.Event()
     persist_training_record(user_id, record)
-    TRAINING_EXECUTOR.submit(execute_training_job, req, user_id, new_id)
+    try:
+        TRAINING_EXECUTOR.submit(execute_training_job, req, user_id, new_id)
+    except Exception as exc:
+        update_training_record(user_id, new_id, {"status": "failed", "error": "Could not queue retry: " + str(exc), "finished_at": datetime.now().isoformat()})
+        raise HTTPException(503, "Training queue is temporarily unavailable.") from exc
     return {"job_id": new_id, "status": "queued", "queue_position": record["queue_position"], "retry_of": job_id}
 
 @app.get("/api/training-jobs/{job_id}")
@@ -1021,7 +1026,8 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         "target": req.target, "task": req.task, "mode": req.mode,
         "best_model": best["model_name"], "created_at": created, "status": "completed",
         "train_rows": len(Xtr), "test_rows": len(Xte), "leaderboard": leaderboard,
-        "best_evaluation": best["evaluation"], "request_config": req.model_dump()
+        "best_evaluation": best["evaluation"], "request_config": req.model_dump(),
+        "actual": best_actual, "predictions": best_predictions
     }
     (job_dir / (model_id + ".json")).write_text(json.dumps(job, indent=2), encoding="utf-8")
 
@@ -1105,8 +1111,19 @@ def download_evaluation_csv(model_id: str, user_id: str = Depends(current_user))
     leaderboard = metadata.get("leaderboard") or []
     if not leaderboard:
         raise HTTPException(404, "Evaluation results are not available for this experiment.")
+    rows = [{"record_type": "leaderboard", **item} for item in leaderboard]
+    for metric_name, metric_value in (metadata.get("best_evaluation") or {}).get("metrics", {}).items():
+        rows.append({"record_type": "best_model_metric", "metric": metric_name, "value": metric_value})
+    actual = metadata.get("actual") or []
+    predictions = metadata.get("predictions") or []
+    for index, (actual_value, predicted_value) in enumerate(zip(actual, predictions)):
+        rows.append({
+            "record_type": "test_prediction", "row_index": index,
+            "actual": actual_value, "predicted": predicted_value,
+            "correct": actual_value == predicted_value if metadata.get("task") == "classification" else None
+        })
     output = io.StringIO()
-    pd.DataFrame(leaderboard).to_csv(output, index=False)
+    pd.DataFrame(rows).to_csv(output, index=False)
     filename = f"automl-evaluation-{model_id[:8]}.csv"
     return Response(output.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
@@ -1164,8 +1181,8 @@ def saved_jobs(user_id: str = Depends(current_user)):
             if job.get("status") in {"queued","running"}:
                 job["status"]="interrupted"
                 job["error"]="The server restarted before this experiment finished. Retry will start the saved configuration from the beginning."
-                job["can_retry"]=bool(job.get("request_config"))
                 p.write_text(json.dumps(job,indent=2,default=str),encoding="utf-8")
+            job["can_retry"] = bool(job.get("request_config")) and (job.get("status") in {"interrupted","failed","cancelled"} or not model_path.is_file())
             jobs.append(job)
         except Exception:
             pass
