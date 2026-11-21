@@ -205,7 +205,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
                   </ScatterChart>
                 </ResponsiveContainer>
               ) : <p>No finite numeric prediction pairs are available.</p>}
-              {table(actualPredictedRows.slice(0, 100))}
+              {table(actualPredictedRows)}
             </>
           )
         )}
