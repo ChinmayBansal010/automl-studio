@@ -123,7 +123,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
  useEffect(()=>{SSelectedModels(models)},[task])
  useEffect(()=>{if(!p)return;const xs=chartXColumns;if(xs.length&&!xs.some((c:any)=>c.column===x))SX(xs[0].column);if(!xs.length)SX('');const ys=chartYColumns;if(ys.length&&!ys.some((c:any)=>c.column===y))SY(ys[0].column);if(!ys.length)SY('')},[kind,p])
 
- async function refresh(){const a=await api('/workspace'),b=await api('/workspace/jobs');SW(a);SJ(b.jobs||[])}
+ async function refresh(){const a=await api('/workspace'),b=await api('/workspace/jobs');SW(a);SJ(b.jobs||[]);STQ(b.jobs||[])}
  useEffect(()=>{if(!p?.dataset_id)return;dashboardReady.current=false;try{const saved=localStorage.getItem('automl-dashboard:'+user.id+':'+p.dataset_id);if(saved){const value=JSON.parse(saved);SCH(Array.isArray(value.charts)?value.charts:[]);SG([1,2,3].includes(value.columns)?value.columns:1)}else SCH([])}catch{SCH([])}dashboardReady.current=true},[p?.dataset_id,user.id])
  useEffect(()=>{if(!dashboardReady.current||!p?.dataset_id)return;try{localStorage.setItem('automl-dashboard:'+user.id+':'+p.dataset_id,JSON.stringify({charts:Array.isArray(chart)?chart:[],columns:grid}))}catch{}},[chart,grid,p?.dataset_id,user.id])
  useEffect(()=>{(async()=>{await refresh();await recoverActiveDataset()})().catch(error=>ER(error instanceof Error?error.message:String(error))).finally(()=>setInitialLoading(false))},[])
