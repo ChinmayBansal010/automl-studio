@@ -41,7 +41,7 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 warnings.filterwarnings("ignore", category=UserWarning)
 app = FastAPI(title="AutoML Studio API", version="2.0.0")
 allowed_origins = [origin.strip() for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if origin.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Disposition"])
 RATE_LIMITS: dict[tuple[str, str], tuple[float, int]] = {}
 RATE_LIMIT_LOCK = threading.Lock()
 
@@ -820,6 +820,8 @@ def cancel_training_job(job_id: str, user_id: str = Depends(current_user)):
         else:
             job["cancel_requested"] = True
             message = "Stop requested. The current model fit will finish safely, then remaining models will be skipped."
+        snapshot = dict(job)
+    persist_training_record(user_id, snapshot)
     return {"job_id": job_id, "status": "cancelled" if job["status"] == "cancelled" else "cancelling", "message": message}
 
 @app.post("/api/training-jobs/{job_id}/cancel")
