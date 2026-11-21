@@ -118,6 +118,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
    {'Actual class ↓ / Predicted class →':'',...Object.fromEntries(cm.labels.map((label:string)=>[label,label]))},
    ...cm.labels.map((label:string,i:number)=>({'Actual class ↓ / Predicted class →':label,...Object.fromEntries(cm.labels.map((predicted:string,j:number)=>[predicted,cm.matrix[i]?.[j]??0]))}))
  ]:[]
+ useEffect(()=>{SSelectedModels(models)},[task])
  useEffect(()=>{if(!p)return;const xs=chartXColumns;if(xs.length&&!xs.some((c:any)=>c.column===x))SX(xs[0].column);if(!xs.length)SX('');const ys=chartYColumns;if(ys.length&&!ys.some((c:any)=>c.column===y))SY(ys[0].column);if(!ys.length)SY('')},[kind,p])
 
  async function refresh(){const a=await api('/workspace'),b=await api('/workspace/jobs');SW(a);SJ(b.jobs||[])}
