@@ -700,7 +700,9 @@ def execute_training_job(req: Train, user_id: str, job_id: str):
                     "best_model": result.get("best_model"),
                     "train_rows": result.get("train_rows"), "test_rows": result.get("test_rows"),
                     "leaderboard": result.get("leaderboard"),
-                    "best_evaluation": result.get("best_evaluation")
+                    "best_evaluation": result.get("best_evaluation"),
+                    "actual": (result.get("results") or [{}])[0].get("actual", []),
+                    "predictions": (result.get("results") or [{}])[0].get("predictions", [])
                 })
                 snapshot = dict(TRAINING_JOBS[key])
         persist_training_record(user_id, snapshot)
@@ -1122,6 +1124,17 @@ def download_evaluation_csv(model_id: str, user_id: str = Depends(current_user))
             "actual": actual_value, "predicted": predicted_value,
             "correct": actual_value == predicted_value if metadata.get("task") == "classification" else None
         })
+    confusion = (metadata.get("best_evaluation") or {}).get("confusion_matrix") or {}
+    labels = confusion.get("labels") or []
+    matrix = confusion.get("matrix") or []
+    for row_index, actual_label in enumerate(labels):
+        for column_index, predicted_label in enumerate(labels):
+            rows.append({
+                "record_type": "confusion_matrix",
+                "actual_class": actual_label,
+                "predicted_class": predicted_label,
+                "count": (matrix[row_index][column_index] if row_index < len(matrix) and column_index < len(matrix[row_index]) else 0)
+            })
     output = io.StringIO()
     pd.DataFrame(rows).to_csv(output, index=False)
     filename = f"automl-evaluation-{model_id[:8]}.csv"
