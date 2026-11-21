@@ -1042,10 +1042,12 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
             del estimator
             gc.collect()
             if job_key:
+                with TRAINING_JOBS_LOCK:
+                    TRAINING_SKIP_MODELS.get(job_key, set()).discard(name)
                 completed = model_index + 1
                 elapsed = time.monotonic() - job_started
                 avg = elapsed / completed
-                update_training_record(user_id, assigned_model_id, {"completed_models": completed, "total_models": total_models, "progress_pct": round(completed / total_models * 100), "elapsed_seconds": int(elapsed), "eta_seconds": int(avg * (total_models - completed)), "current_model": None})
+                update_training_record(user_id, assigned_model_id, {"completed_models": completed, "total_models": total_models, "progress_pct": round(completed / total_models * 100), "elapsed_seconds": int(elapsed), "eta_seconds": int(avg * (total_models - completed)), "current_model": None, "skip_requested_model": None})
 
     if cancel_event and cancel_event.is_set():
         raise HTTPException(409, "Training was cancelled.")
