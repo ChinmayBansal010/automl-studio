@@ -157,3 +157,17 @@ button[data-working="true"]::after{content:"";position:absolute;right:11px;top:5
 @media(prefers-reduced-motion:reduce){
  .loader-ring,.busy-pulse,.skeleton::after,button[data-working="true"]::after{animation:none}
 }
+
+/* Multi-graph dashboard and collapsible large tables */
+.chart-dashboard{display:grid;align-items:start;gap:16px}
+.chart-card{min-width:0;overflow:hidden}
+.chart-card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.chart-card-heading h2{margin:0}
+.table-disclosure{margin-top:12px;border:1px solid #e7eaf2;border-radius:9px;background:#fbfcff;overflow:hidden}
+.table-disclosure>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:42px;padding:10px 13px;color:#53627e;font-size:11px;font-weight:750;cursor:pointer;list-style:none}
+.table-disclosure>summary::-webkit-details-marker{display:none}
+.table-disclosure>summary:after{content:"+";font-size:17px;color:#6579d9;font-weight:500}
+.table-disclosure[open]>summary:after{content:"−"}
+.table-disclosure[open]>summary{border-bottom:1px solid #e7eaf2;background:#f5f7ff}
+.table-disclosure .tablewrap{border:0;border-radius:0;margin:0}
+@media(max-width:760px){.chart-dashboard{grid-template-columns:1fr!important}.chart-card{padding:14px}.chart-card-heading h2{font-size:13px}}
