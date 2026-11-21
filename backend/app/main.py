@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import gc, hashlib, io, json, os, re, threading, uuid, warnings
+import gc, hashlib, io, json, os, re, threading, time, uuid, warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from jwt.exceptions import PyJWKClientConnectionError
 from pydantic import BaseModel, Field
 from sklearn.compose import ColumnTransformer
@@ -42,6 +42,41 @@ warnings.filterwarnings("ignore", category=UserWarning)
 app = FastAPI(title="AutoML Studio API", version="2.0.0")
 allowed_origins = [origin.strip() for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if origin.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+RATE_LIMITS: dict[tuple[str, str], tuple[float, int]] = {}
+RATE_LIMIT_LOCK = threading.Lock()
+
+@app.middleware("http")
+async def api_rate_limit(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    authorization = request.headers.get("authorization", "")
+    identity = hashlib.sha256(authorization.encode("utf-8")).hexdigest() if authorization else (request.client.host if request.client else "unknown")
+    if path == "/api/train" and request.method == "POST":
+        limit = 5
+    elif path == "/api/datasets" and request.method == "POST":
+        limit = 10
+    elif path.endswith("/preprocess") or path.endswith("/feature-engineering"):
+        limit = 30
+    elif "/training-jobs/" in path and request.method == "GET":
+        limit = 90
+    else:
+        limit = 120
+    window = 60.0
+    now = time.monotonic()
+    key = (identity, path.split("/{", 1)[0])
+    with RATE_LIMIT_LOCK:
+        started, count = RATE_LIMITS.get(key, (now, 0))
+        if now - started >= window:
+            started, count = now, 0
+        if count >= limit:
+            retry_after = max(1, int(window - (now - started)))
+            return JSONResponse(status_code=429, content={"detail": "Too many requests. Please wait briefly and try again."}, headers={"Retry-After": str(retry_after)})
+        RATE_LIMITS[key] = (started, count + 1)
+        if len(RATE_LIMITS) > 10000:
+            RATE_LIMITS.clear()
+    return await call_next(request)
+
 ROOT = Path(__file__).resolve().parent.parent / "workspace"
 NEON_AUTH_BASE_URL = os.getenv("NEON_AUTH_BASE_URL", "").rstrip("/")
 NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL", f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json")
@@ -468,28 +503,36 @@ class Train(BaseModel):
     pca_components: int = Field(default=0,ge=0,le=500)
 
 TRAINING_JOBS: dict[tuple[str, str], dict[str, Any]] = {}
+TRAINING_CANCEL_EVENTS: dict[tuple[str, str], threading.Event] = {}
 TRAINING_JOBS_LOCK = threading.Lock()
 TRAINING_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="automl-training")
 MAX_QUEUED_JOBS_PER_USER = 3
 
 def execute_training_job(req: Train, user_id: str, job_id: str):
     key = (user_id, job_id)
+    cancel_event = TRAINING_CANCEL_EVENTS.get(key, threading.Event())
     with TRAINING_JOBS_LOCK:
-        if key in TRAINING_JOBS:
-            TRAINING_JOBS[key]["status"] = "running"
+        if key not in TRAINING_JOBS:
+            return
+        if cancel_event.is_set():
+            TRAINING_JOBS[key].update({"status": "cancelled", "finished_at": datetime.now().isoformat()})
+            return
+        TRAINING_JOBS[key]["status"] = "running"
     try:
-        result = run_training(req, user_id, job_id)
+        result = run_training(req, user_id, job_id, cancel_event)
         with TRAINING_JOBS_LOCK:
             if key in TRAINING_JOBS:
                 TRAINING_JOBS[key].update({"status": "completed", "result": result, "error": None, "finished_at": datetime.now().isoformat()})
     except HTTPException as exc:
         with TRAINING_JOBS_LOCK:
             if key in TRAINING_JOBS:
-                TRAINING_JOBS[key].update({"status": "failed", "error": str(exc.detail), "finished_at": datetime.now().isoformat()})
+                status = "cancelled" if cancel_event.is_set() else "failed"
+                TRAINING_JOBS[key].update({"status": status, "error": None if status == "cancelled" else str(exc.detail), "finished_at": datetime.now().isoformat()})
     except Exception as exc:
         with TRAINING_JOBS_LOCK:
             if key in TRAINING_JOBS:
-                TRAINING_JOBS[key].update({"status": "failed", "error": "Training failed: " + str(exc), "finished_at": datetime.now().isoformat()})
+                status = "cancelled" if cancel_event.is_set() else "failed"
+                TRAINING_JOBS[key].update({"status": status, "error": None if status == "cancelled" else "Training failed: " + str(exc), "finished_at": datetime.now().isoformat()})
     finally:
         gc.collect()
 
@@ -509,6 +552,7 @@ def train(req: Train, user_id: str = Depends(current_user)):
             "mode": req.mode, "model_name": req.model_name, "queue_position": queue_position,
             "created_at": datetime.now().isoformat(), "error": None, "result": None
         }
+        TRAINING_CANCEL_EVENTS[(user_id, job_id)] = threading.Event()
     try:
         TRAINING_EXECUTOR.submit(execute_training_job, req, user_id, job_id)
     except Exception as exc:
@@ -533,7 +577,37 @@ def training_job_status(job_id: str, user_id: str = Depends(current_user)):
             response["result"] = job.get("result")
         return response
 
-def run_training(req: Train, user_id: str, assigned_model_id: str | None = None):
+def cancel_training_job(job_id: str, user_id: str = Depends(current_user)):
+    try:
+        if str(uuid.UUID(job_id)) != job_id:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(404, "Training job not found.")
+    key = (user_id, job_id)
+    with TRAINING_JOBS_LOCK:
+        job = TRAINING_JOBS.get(key)
+        if job is None:
+            raise HTTPException(404, "Training job not found.")
+        if job["status"] not in {"queued", "running"}:
+            return {"job_id": job_id, "status": job["status"], "message": "This training job is already finished."}
+        event = TRAINING_CANCEL_EVENTS.get(key)
+        if event:
+            event.set()
+        if job["status"] == "queued":
+            job.update({"status": "cancelled", "finished_at": datetime.now().isoformat()})
+            message = "Queued training job cancelled."
+        else:
+            job["cancel_requested"] = True
+            message = "Stop requested. The current model fit will finish safely, then remaining models will be skipped."
+    return {"job_id": job_id, "status": "cancelled" if job["status"] == "cancelled" else "cancelling", "message": message}
+
+@app.post("/api/training-jobs/{job_id}/cancel")
+def cancel_training_job_route(job_id: str, user_id: str = Depends(current_user)):
+    return cancel_training_job(job_id, user_id)
+
+def run_training(req: Train, user_id: str, assigned_model_id: str | None = None, cancel_event: threading.Event | None = None):
+    if cancel_event and cancel_event.is_set():
+        raise HTTPException(409, "Training was cancelled.")
     source_df = get_df(req.dataset_id, user_id)
     if req.target not in source_df.columns:
         raise HTTPException(400, "Target column not found.")
@@ -632,11 +706,15 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
     class_labels = list(pd.unique(y)) if req.task == "classification" else []
 
     for name, estimator in chosen.items():
+        if cancel_event and cancel_event.is_set():
+            raise HTTPException(409, "Training was cancelled.")
         pipeline = None
         predictions = None
         try:
             pipeline = make_pipeline(Xtr, estimator, req.scale_numeric, req.feature_selection, req.k_features, req.pca_components if req.use_pca else 0, req.task)
             pipeline.fit(Xtr, ytr)
+            if cancel_event and cancel_event.is_set():
+                raise HTTPException(409, "Training was cancelled.")
             predictions = pipeline.predict(Xte)
             if req.task == "classification":
                 metrics = {
@@ -676,6 +754,8 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
             del estimator
             gc.collect()
 
+    if cancel_event and cancel_event.is_set():
+        raise HTTPException(409, "Training was cancelled.")
     successful = [row for row in leaderboard if row["status"] == "completed"]
     if not successful or best is None or best_pipe is None:
         details = "; ".join(row["model_name"] + ": " + row.get("error", "Unknown error") for row in leaderboard)
