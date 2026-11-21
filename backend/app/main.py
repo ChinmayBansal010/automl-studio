@@ -662,7 +662,8 @@ def persist_training_record(user_id: str, record: dict[str, Any]) -> None:
         _, _, job_dir, _ = user_workspace(user_id)
         job_id = record.get("job_id")
         if job_id:
-            artifact_path(job_dir, job_id, ".json").write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
+            durable_record = {key: value for key, value in record.items() if key != "result"}
+            artifact_path(job_dir, job_id, ".json").write_text(json.dumps(durable_record, indent=2, default=str), encoding="utf-8")
     except (OSError, HTTPException):
         pass
 
