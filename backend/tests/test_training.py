@@ -27,6 +27,7 @@ class TrainingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.object(main, "ROOT", Path(temp_dir)), patch.object(main, "get_df", return_value=frame):
                 result = main.run_training(request, "training-test-user")
+        self.assertNotIn(("training-test-user", result["model_id"]), main.models)
         main.models.clear()
         return result
 
@@ -54,6 +55,16 @@ class TrainingTests(unittest.TestCase):
         self.assertTrue(all(np.isfinite(result["results"][0]["predictions"])))
         self.assertIn("r2", result["best_evaluation"]["metrics"])
         self.assertIn("mae", result["best_evaluation"]["metrics"])
+
+    def test_large_dataset_is_sampled_to_free_instance_limit(self):
+        x = np.arange(5200, dtype=float)
+        frame = pd.DataFrame({
+            "feature": x,
+            "target": ["class-a" if i % 2 == 0 else "class-b" for i in range(5200)],
+        })
+        result = self.run_training_case(frame, "classification", "target")
+        self.assertEqual(result["train_rows"] + result["test_rows"], 5000)
+        self.assertTrue(any("5,000 usable rows" in warning for warning in result["warnings"]))
 
     def test_candidate_pools_are_task_specific(self):
         classification = main.candidates("classification")
