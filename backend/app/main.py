@@ -678,7 +678,6 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
     created = datetime.now().isoformat()
     model_data = {"pipeline": best_pipe, "task": req.task, "target": req.target, "feature_cols": input_feature_cols, "model_name": best["model_name"], "dataset_id": req.dataset_id, "created_at": created}
     joblib.dump(model_data, model_dir / (model_id + ".joblib"), compress=3)
-    models[(user_id, model_id)] = model_data
 
     job = {
         "job_id": model_id, "model_id": model_id, "dataset_id": req.dataset_id,
@@ -712,15 +711,18 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
 async def predict(model_id: str = Form(...), file: UploadFile = File(...), include_actual_column: str = Form(default=""), user_id: str = Depends(current_user)):
     _, model_dir, _, export_dir = user_workspace(user_id)
     model_key = (user_id, model_id)
-    if model_key not in models:
-        path=artifact_path(model_dir, model_id, ".joblib")
-        if path.exists(): models[model_key]=joblib.load(path)
-        else: raise HTTPException(404,"Saved model not found.")
+    if model_key in models:
+        model_data = models[model_key]
+    else:
+        path = artifact_path(model_dir, model_id, ".joblib")
+        if not path.exists():
+            raise HTTPException(404, "Saved model not found.")
+        model_data = joblib.load(path)
     content = await file.read()
     if len(content)>LIMIT: raise HTTPException(413,"CSV exceeds 100 MB.")
     try: df=clean(pd.read_csv(io.BytesIO(content),low_memory=False))
     except Exception as e: raise HTTPException(400,f"Could not parse test CSV: {e}")
-    m=models[model_key]; missing=[c for c in m["feature_cols"] if c not in df]
+    m=model_data; missing=[c for c in m["feature_cols"] if c not in df]
     if missing: raise HTTPException(400,"Missing required columns: "+", ".join(missing))
     X=df[m["feature_cols"]].copy()
     for c in X.select_dtypes(include=np.number).columns:
