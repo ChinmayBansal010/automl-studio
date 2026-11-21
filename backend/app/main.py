@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc, hashlib, io, json, os, re, threading, uuid, warnings
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -457,22 +458,73 @@ class Train(BaseModel):
     use_pca: bool = False
     pca_components: int = Field(default=0,ge=0,le=500)
 
-TRAINING_USERS: set[str] = set()
-TRAINING_USERS_LOCK = threading.Lock()
+TRAINING_JOBS: dict[tuple[str, str], dict[str, Any]] = {}
+TRAINING_JOBS_LOCK = threading.Lock()
+TRAINING_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="automl-training")
+MAX_QUEUED_JOBS_PER_USER = 3
+
+def execute_training_job(req: Train, user_id: str, job_id: str):
+    key = (user_id, job_id)
+    with TRAINING_JOBS_LOCK:
+        if key in TRAINING_JOBS:
+            TRAINING_JOBS[key]["status"] = "running"
+    try:
+        result = run_training(req, user_id, job_id)
+        with TRAINING_JOBS_LOCK:
+            if key in TRAINING_JOBS:
+                TRAINING_JOBS[key].update({"status": "completed", "result": result, "error": None, "finished_at": datetime.now().isoformat()})
+    except HTTPException as exc:
+        with TRAINING_JOBS_LOCK:
+            if key in TRAINING_JOBS:
+                TRAINING_JOBS[key].update({"status": "failed", "error": str(exc.detail), "finished_at": datetime.now().isoformat()})
+    except Exception as exc:
+        with TRAINING_JOBS_LOCK:
+            if key in TRAINING_JOBS:
+                TRAINING_JOBS[key].update({"status": "failed", "error": "Training failed: " + str(exc), "finished_at": datetime.now().isoformat()})
+    finally:
+        gc.collect()
 
 @app.post("/api/train")
 def train(req: Train, user_id: str = Depends(current_user)):
-    with TRAINING_USERS_LOCK:
-        if user_id in TRAINING_USERS:
-            raise HTTPException(409, "A training job is already running for this account. Wait for it to finish before starting another.")
-        TRAINING_USERS.add(user_id)
+    with TRAINING_JOBS_LOCK:
+        active = [
+            job for (owner, _), job in TRAINING_JOBS.items()
+            if owner == user_id and job["status"] in {"queued", "running"}
+        ]
+        if len(active) >= MAX_QUEUED_JOBS_PER_USER:
+            raise HTTPException(429, "You already have three queued or running jobs. Wait for one to finish before adding another.")
+        job_id = str(uuid.uuid4())
+        queue_position = sum(1 for job in TRAINING_JOBS.values() if job["status"] in {"queued", "running"}) + 1
+        TRAINING_JOBS[(user_id, job_id)] = {
+            "job_id": job_id, "status": "queued", "task": req.task, "target": req.target,
+            "mode": req.mode, "model_name": req.model_name, "queue_position": queue_position,
+            "created_at": datetime.now().isoformat(), "error": None, "result": None
+        }
     try:
-        return run_training(req, user_id)
-    finally:
-        with TRAINING_USERS_LOCK:
-            TRAINING_USERS.discard(user_id)
+        TRAINING_EXECUTOR.submit(execute_training_job, req, user_id, job_id)
+    except Exception as exc:
+        with TRAINING_JOBS_LOCK:
+            TRAINING_JOBS[(user_id, job_id)].update({"status": "failed", "error": "Could not queue training: " + str(exc)})
+        raise HTTPException(503, "Training queue is temporarily unavailable.") from exc
+    return {"job_id": job_id, "status": "queued", "queue_position": queue_position, "message": "Training job added to the queue. Jobs run one at a time to protect the free server memory limit."}
 
-def run_training(req: Train, user_id: str):
+@app.get("/api/training-jobs/{job_id}")
+def training_job_status(job_id: str, user_id: str = Depends(current_user)):
+    try:
+        if str(uuid.UUID(job_id)) != job_id:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(404, "Training job not found.")
+    with TRAINING_JOBS_LOCK:
+        job = TRAINING_JOBS.get((user_id, job_id))
+        if job is None:
+            raise HTTPException(404, "Training job not found or no longer available in this server session.")
+        response = {key: value for key, value in job.items() if key != "result"}
+        if job["status"] == "completed":
+            response["result"] = job.get("result")
+        return response
+
+def run_training(req: Train, user_id: str, assigned_model_id: str | None = None):
     source_df = get_df(req.dataset_id, user_id)
     if req.target not in source_df.columns:
         raise HTTPException(400, "Target column not found.")
@@ -608,7 +660,7 @@ def run_training(req: Train, user_id: str):
     leaderboard.sort(key=lambda row: row["primary_score"] if row["primary_score"] is not None else -float("inf"), reverse=True)
 
     _, model_dir, job_dir, _ = user_workspace(user_id)
-    model_id = str(uuid.uuid4())
+    model_id = assigned_model_id or str(uuid.uuid4())
     created = datetime.now().isoformat()
     model_data = {"pipeline": best_pipe, "task": req.task, "target": req.target, "feature_cols": input_feature_cols, "model_name": best["model_name"], "dataset_id": req.dataset_id, "created_at": created}
     joblib.dump(model_data, model_dir / (model_id + ".joblib"), compress=3)
@@ -617,7 +669,7 @@ def run_training(req: Train, user_id: str):
     job = {
         "job_id": model_id, "model_id": model_id, "dataset_id": req.dataset_id,
         "target": req.target, "task": req.task, "mode": req.mode,
-        "best_model": best["model_name"], "created_at": created,
+        "best_model": best["model_name"], "created_at": created, "status": "completed",
         "train_rows": len(Xtr), "test_rows": len(Xte), "leaderboard": leaderboard
     }
     (job_dir / (model_id + ".json")).write_text(json.dumps(job, indent=2), encoding="utf-8")
