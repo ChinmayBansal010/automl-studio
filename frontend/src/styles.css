@@ -171,3 +171,9 @@ button[data-working="true"]::after{content:"";position:absolute;right:11px;top:5
 .table-disclosure[open]>summary{border-bottom:1px solid #e7eaf2;background:#f5f7ff}
 .table-disclosure .tablewrap{border:0;border-radius:0;margin:0}
 @media(max-width:760px){.chart-dashboard{grid-template-columns:1fr!important}.chart-card{padding:14px}.chart-card-heading h2{font-size:13px}}
+
+.model-picker{display:grid;gap:10px;padding:12px;border:1px solid #e7eaf2;border-radius:10px;background:#fbfcff}
+.select-all-models{font-weight:750;color:#34415c}
+.model-picker .checkgrid{margin:0}
+.model-picker>small{color:#71809b;font-size:11px}
+.chart-card .recharts-wrapper{max-width:100%}
