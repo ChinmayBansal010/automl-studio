@@ -109,6 +109,44 @@ def artifact_path(folder: Path, artifact_id: str, suffix: str) -> Path:
         raise HTTPException(404, "Artifact not found.")
     return folder / f"{artifact_id}{suffix}"
 
+def save_dataset_version(user_id: str, dataset_id: str, df: pd.DataFrame, filename: str, reason: str) -> dict[str, Any]:
+    data_dir, _, _, _ = user_workspace(user_id)
+    version_dir = data_dir / f"{dataset_id}.versions"
+    version_dir.mkdir(parents=True, exist_ok=True)
+    version_id = str(uuid.uuid4())
+    csv_path = artifact_path(version_dir, version_id, ".csv")
+    df.to_csv(csv_path, index=False)
+    metadata = {
+        "version_id": version_id,
+        "dataset_id": dataset_id,
+        "filename": filename,
+        "reason": reason,
+        "created_at": datetime.now().isoformat(),
+        "rows": int(len(df)),
+        "columns": int(len(df.columns)),
+        "size_bytes": csv_path.stat().st_size,
+    }
+    artifact_path(version_dir, version_id, ".json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    versions = sorted(version_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in versions[25:]:
+        try:
+            old_meta = json.loads(old.read_text(encoding="utf-8"))
+            artifact_path(version_dir, old_meta["version_id"], ".csv").unlink(missing_ok=True)
+            old.unlink(missing_ok=True)
+        except Exception:
+            continue
+    return metadata
+
+def dataset_filename(data_dir: Path, dataset_id: str) -> str:
+    meta_path = artifact_path(data_dir, dataset_id, ".json")
+    try:
+        original = json.loads(meta_path.read_text(encoding="utf-8")).get("filename", "dataset.csv")
+    except (OSError, ValueError):
+        original = "dataset.csv"
+    stem = Path(str(original)).stem
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip("._-")[:80] or "dataset"
+    return safe + "-processed.csv"
+
 def current_user(authorization: str | None = Header(default=None)) -> str:
     if JWKS_CLIENT is None:
         raise HTTPException(503, "Authentication is not configured.")
@@ -308,6 +346,7 @@ async def upload(file: UploadFile = File(...), user_id: str = Depends(current_us
     data_dir, _, _, _ = user_workspace(user_id)
     did = str(uuid.uuid4()); datasets[(user_id, did)] = df; df.to_csv(data_dir/f"{did}.csv",index=False)
     (data_dir/f"{did}.json").write_text(json.dumps({"dataset_id":did,"filename":file.filename,"saved_at":datetime.now().isoformat()}),encoding="utf-8")
+    save_dataset_version(user_id, did, df, file.filename, "Uploaded original dataset")
     return {"dataset_id":did,"filename":file.filename,"saved_locally":True,**profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/restore")
@@ -329,6 +368,7 @@ async def restore_dataset_file(dataset_id: str, file: UploadFile = File(...), us
     df.to_csv(path,index=False)
     metadata={"dataset_id":dataset_id,"filename":file.filename,"saved_at":datetime.now().isoformat()}
     artifact_path(data_dir,dataset_id,".json").write_text(json.dumps(metadata),encoding="utf-8")
+    save_dataset_version(user_id, dataset_id, df, file.filename, "Restored browser backup")
     return {"dataset_id":dataset_id,"filename":file.filename,"saved_locally":True,**profile(df)}
 
 @app.get("/api/datasets/{dataset_id}/download")
@@ -337,7 +377,38 @@ def download_dataset_file(dataset_id: str, user_id: str = Depends(current_user))
     path=artifact_path(data_dir,dataset_id,".csv")
     if not path.exists():
         raise HTTPException(404,"Dataset file is not available on this server. Restore it from the browser backup.")
-    return StreamingResponse(open(path,"rb"),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=dataset.csv"})
+    filename = dataset_filename(data_dir, dataset_id)
+    return StreamingResponse(open(path,"rb"),media_type="text/csv; charset=utf-8",headers={"Content-Disposition":f'attachment; filename="{filename}"'})
+
+@app.get("/api/datasets/{dataset_id}/versions")
+def list_dataset_versions(dataset_id: str, user_id: str = Depends(current_user)):
+    artifact_path(user_workspace(user_id)[0], dataset_id, ".csv")
+    version_dir = user_workspace(user_id)[0] / f"{dataset_id}.versions"
+    versions = []
+    if version_dir.exists():
+        for path in version_dir.glob("*.json"):
+            try:
+                versions.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+    return {"versions": sorted(versions, key=lambda item: item.get("created_at", ""), reverse=True)}
+
+@app.post("/api/datasets/{dataset_id}/versions/{version_id}/restore")
+def restore_dataset_version(dataset_id: str, version_id: str, user_id: str = Depends(current_user)):
+    data_dir, _, _, _ = user_workspace(user_id)
+    version_dir = data_dir / f"{dataset_id}.versions"
+    metadata_path = artifact_path(version_dir, version_id, ".json")
+    csv_path = artifact_path(version_dir, version_id, ".csv")
+    if not metadata_path.is_file() or not csv_path.is_file():
+        raise HTTPException(404, "Dataset version not found.")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    df = clean(pd.read_csv(csv_path, low_memory=False))
+    if df.empty:
+        raise HTTPException(400, "This dataset version contains no rows.")
+    datasets[(user_id, dataset_id)] = df
+    df.to_csv(artifact_path(data_dir, dataset_id, ".csv"), index=False)
+    save_dataset_version(user_id, dataset_id, df, metadata.get("filename", "dataset.csv"), "Restored version " + version_id[:8])
+    return {"dataset_id": dataset_id, "filename": metadata.get("filename", "dataset.csv"), "saved_locally": True, **profile(df)}
 
 @app.get("/api/datasets/{dataset_id}/profile")
 def get_profile(dataset_id: str, user_id: str = Depends(current_user)): return profile(get_df(dataset_id, user_id))
@@ -437,6 +508,7 @@ def preprocess(dataset_id: str, req: Prep, user_id: str = Depends(current_user))
     data_dir,_,_,_=user_workspace(user_id)
     datasets[(user_id,dataset_id)]=df
     df.to_csv(artifact_path(data_dir,dataset_id,".csv"),index=False)
+    save_dataset_version(user_id, dataset_id, df, dataset_filename(data_dir, dataset_id).removesuffix("-processed.csv") + ".csv", "Preprocessing: " + op)
     return {"dataset_id":dataset_id,"operation":op,"saved_locally":True,**profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/feature-engineering")
@@ -475,6 +547,7 @@ def feature_engineering(dataset_id: str, payload: dict[str,Any], user_id: str = 
     data_dir,_,_,_=user_workspace(user_id)
     datasets[(user_id,dataset_id)]=df
     df.to_csv(artifact_path(data_dir,dataset_id,".csv"),index=False)
+    save_dataset_version(user_id, dataset_id, df, dataset_filename(data_dir, dataset_id).removesuffix("-processed.csv") + ".csv", "Feature engineering: " + str(op))
     return {"dataset_id":dataset_id,"operation":op,"saved_locally":True,**profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/chart")
@@ -584,6 +657,25 @@ TRAINING_JOBS_LOCK = threading.Lock()
 TRAINING_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="automl-training")
 MAX_QUEUED_JOBS_PER_USER = 3
 
+def persist_training_record(user_id: str, record: dict[str, Any]) -> None:
+    try:
+        _, _, job_dir, _ = user_workspace(user_id)
+        job_id = record.get("job_id")
+        if job_id:
+            artifact_path(job_dir, job_id, ".json").write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
+    except (OSError, HTTPException):
+        pass
+
+def update_training_record(user_id: str, job_id: str, updates: dict[str, Any]) -> None:
+    key = (user_id, job_id)
+    with TRAINING_JOBS_LOCK:
+        record = TRAINING_JOBS.get(key)
+        if record is None:
+            return
+        record.update(updates)
+        snapshot = dict(record)
+    persist_training_record(user_id, snapshot)
+
 def execute_training_job(req: Train, user_id: str, job_id: str):
     key = (user_id, job_id)
     cancel_event = TRAINING_CANCEL_EVENTS.get(key, threading.Event())
@@ -593,22 +685,30 @@ def execute_training_job(req: Train, user_id: str, job_id: str):
         if cancel_event.is_set():
             TRAINING_JOBS[key].update({"status": "cancelled", "finished_at": datetime.now().isoformat()})
             return
-        TRAINING_JOBS[key]["status"] = "running"
+        TRAINING_JOBS[key].update({"status": "running", "started_at": datetime.now().isoformat()})
+        snapshot = dict(TRAINING_JOBS[key])
+    persist_training_record(user_id, snapshot)
     try:
         result = run_training(req, user_id, job_id, cancel_event)
         with TRAINING_JOBS_LOCK:
             if key in TRAINING_JOBS:
-                TRAINING_JOBS[key].update({"status": "completed", "result": result, "error": None, "finished_at": datetime.now().isoformat()})
+                TRAINING_JOBS[key].update({"status": "completed", "result": result, "error": None, "finished_at": datetime.now().isoformat(), "progress_pct": 100, "eta_seconds": 0})
+                snapshot = dict(TRAINING_JOBS[key])
+        persist_training_record(user_id, snapshot)
     except HTTPException as exc:
         with TRAINING_JOBS_LOCK:
             if key in TRAINING_JOBS:
                 status = "cancelled" if cancel_event.is_set() else "failed"
                 TRAINING_JOBS[key].update({"status": status, "error": None if status == "cancelled" else str(exc.detail), "finished_at": datetime.now().isoformat()})
+                snapshot = dict(TRAINING_JOBS[key])
+        persist_training_record(user_id, snapshot)
     except Exception as exc:
         with TRAINING_JOBS_LOCK:
             if key in TRAINING_JOBS:
                 status = "cancelled" if cancel_event.is_set() else "failed"
                 TRAINING_JOBS[key].update({"status": status, "error": None if status == "cancelled" else "Training failed: " + str(exc), "finished_at": datetime.now().isoformat()})
+                snapshot = dict(TRAINING_JOBS[key])
+        persist_training_record(user_id, snapshot)
     finally:
         gc.collect()
 
@@ -626,9 +726,14 @@ def train(req: Train, user_id: str = Depends(current_user)):
         TRAINING_JOBS[(user_id, job_id)] = {
             "job_id": job_id, "status": "queued", "task": req.task, "target": req.target,
             "mode": req.mode, "model_name": req.model_name, "model_names": req.model_names, "queue_position": queue_position,
-            "created_at": datetime.now().isoformat(), "error": None, "result": None
+            "created_at": datetime.now().isoformat(), "error": None, "result": None,
+            "request_config": req.model_dump(), "progress_pct": 0, "completed_models": 0,
+            "total_models": len(req.model_names or []) if req.mode == "manual" else len(candidates(req.task)),
+            "current_model": None, "eta_seconds": None
         }
         TRAINING_CANCEL_EVENTS[(user_id, job_id)] = threading.Event()
+        queued_record = dict(TRAINING_JOBS[(user_id, job_id)])
+    persist_training_record(user_id, queued_record)
     try:
         TRAINING_EXECUTOR.submit(execute_training_job, req, user_id, job_id)
     except Exception as exc:
@@ -636,6 +741,37 @@ def train(req: Train, user_id: str = Depends(current_user)):
             TRAINING_JOBS[(user_id, job_id)].update({"status": "failed", "error": "Could not queue training: " + str(exc)})
         raise HTTPException(503, "Training queue is temporarily unavailable.") from exc
     return {"job_id": job_id, "status": "queued", "queue_position": queue_position, "message": "Training job added to the queue. Jobs run one at a time to protect the free server memory limit."}
+
+@app.post("/api/training-jobs/{job_id}/retry")
+def retry_training_job(job_id: str, user_id: str = Depends(current_user)):
+    _, _, job_dir, _ = user_workspace(user_id)
+    source_path = artifact_path(job_dir, job_id, ".json")
+    if not source_path.is_file():
+        raise HTTPException(404, "Saved experiment configuration was not found.")
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    config = source.get("request_config")
+    if not config:
+        raise HTTPException(409, "This experiment does not contain a saved configuration and cannot be retried.")
+    req = Train(**config)
+    with TRAINING_JOBS_LOCK:
+        active = [job for (owner, _), job in TRAINING_JOBS.items() if owner == user_id and job.get("status") in {"queued", "running"}]
+        if len(active) >= MAX_QUEUED_JOBS_PER_USER:
+            raise HTTPException(429, "You already have three queued or running jobs.")
+        new_id = str(uuid.uuid4())
+        record = {
+            "job_id": new_id, "status": "queued", "task": req.task, "target": req.target,
+            "mode": req.mode, "model_name": req.model_name, "model_names": req.model_names,
+            "queue_position": len(active) + 1, "created_at": datetime.now().isoformat(),
+            "error": None, "result": None, "request_config": req.model_dump(),
+            "retry_of": job_id, "progress_pct": 0, "completed_models": 0,
+            "total_models": len(req.model_names or []) if req.mode == "manual" else len(candidates(req.task)),
+            "current_model": None, "eta_seconds": None
+        }
+        TRAINING_JOBS[(user_id, new_id)] = record
+        TRAINING_CANCEL_EVENTS[(user_id, new_id)] = threading.Event()
+    persist_training_record(user_id, record)
+    TRAINING_EXECUTOR.submit(execute_training_job, req, user_id, new_id)
+    return {"job_id": new_id, "status": "queued", "queue_position": record["queue_position"], "retry_of": job_id}
 
 @app.get("/api/training-jobs/{job_id}")
 def training_job_status(job_id: str, user_id: str = Depends(current_user)):
@@ -780,13 +916,23 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         raise HTTPException(400, "The selected model is not available for the chosen task. Refresh the model selection and try again.")
 
     leaderboard = []
+    total_models = len(chosen)
+    job_key = (user_id, assigned_model_id) if assigned_model_id else None
+    job_started = time.monotonic()
+    if job_key:
+        update_training_record(user_id, assigned_model_id, {"total_models": total_models, "completed_models": 0, "progress_pct": 0, "current_model": None, "eta_seconds": None})
     best = None
     best_pipe = None
     best_predictions = []
     best_actual = []
     class_labels = list(pd.unique(y)) if req.task == "classification" else []
 
-    for name, estimator in chosen.items():
+    for model_index, (name, estimator) in enumerate(chosen.items()):
+        if job_key:
+            elapsed = time.monotonic() - job_started
+            avg = elapsed / model_index if model_index else None
+            eta = int(avg * (total_models - model_index)) if avg is not None else None
+            update_training_record(user_id, assigned_model_id, {"current_model": name, "completed_models": model_index, "total_models": total_models, "progress_pct": round(model_index / total_models * 100), "elapsed_seconds": int(elapsed), "eta_seconds": eta})
         headroom=available_memory_mb()
         if headroom is not None and headroom < 160:
             raise HTTPException(503, "Training paused before starting " + name + " because the server has less than 160 MB free memory. Select fewer models, reduce input features, or use a smaller dataset, then retry.")
@@ -839,6 +985,11 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
                 del predictions
             del estimator
             gc.collect()
+            if job_key:
+                completed = model_index + 1
+                elapsed = time.monotonic() - job_started
+                avg = elapsed / completed
+                update_training_record(user_id, assigned_model_id, {"completed_models": completed, "total_models": total_models, "progress_pct": round(completed / total_models * 100), "elapsed_seconds": int(elapsed), "eta_seconds": int(avg * (total_models - completed)), "current_model": None if completed == total_models else name})
 
     if cancel_event and cancel_event.is_set():
         raise HTTPException(409, "Training was cancelled.")
@@ -858,7 +1009,8 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         "job_id": model_id, "model_id": model_id, "dataset_id": req.dataset_id,
         "target": req.target, "task": req.task, "mode": req.mode,
         "best_model": best["model_name"], "created_at": created, "status": "completed",
-        "train_rows": len(Xtr), "test_rows": len(Xte), "leaderboard": leaderboard
+        "train_rows": len(Xtr), "test_rows": len(Xte), "leaderboard": leaderboard,
+        "best_evaluation": best["evaluation"], "request_config": req.model_dump()
     }
     (job_dir / (model_id + ".json")).write_text(json.dumps(job, indent=2), encoding="utf-8")
 
@@ -917,6 +1069,36 @@ def download_predictions(export_id: str, user_id: str = Depends(current_user)):
     if not path.exists(): raise HTTPException(404,"Prediction export not found.")
     return StreamingResponse(open(path,"rb"),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=predictions.csv"})
 
+@app.get("/api/models/{model_id}/download-pkl")
+def download_model_pkl(model_id: str, user_id: str = Depends(current_user)):
+    _, model_dir, job_dir, _ = user_workspace(user_id)
+    path = artifact_path(model_dir, model_id, ".joblib")
+    if not path.is_file():
+        raise HTTPException(404, "Saved model file not found. It may have been removed from the server workspace.")
+    metadata_path = artifact_path(job_dir, model_id, ".json")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        metadata = {}
+    safe = lambda value: (re.sub(r"[^A-Za-z0-9_-]+", "-", str(value or "model")).strip("-_")[:48] or "model")
+    filename = "-".join([safe(metadata.get("best_model")), safe(metadata.get("task")), model_id[:8]]) + ".pkl"
+    return StreamingResponse(open(path, "rb"), media_type="application/octet-stream", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+@app.get("/api/models/{model_id}/evaluation.csv")
+def download_evaluation_csv(model_id: str, user_id: str = Depends(current_user)):
+    _, _, job_dir, _ = user_workspace(user_id)
+    metadata_path = artifact_path(job_dir, model_id, ".json")
+    if not metadata_path.is_file():
+        raise HTTPException(404, "Experiment history was not found.")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    leaderboard = metadata.get("leaderboard") or []
+    if not leaderboard:
+        raise HTTPException(404, "Evaluation results are not available for this experiment.")
+    output = io.StringIO()
+    pd.DataFrame(leaderboard).to_csv(output, index=False)
+    filename = f"automl-evaluation-{model_id[:8]}.csv"
+    return Response(output.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
 @app.get("/api/models/{model_id}/download")
 def download_model(model_id: str, user_id: str = Depends(current_user)):
     _, model_dir, job_dir, _ = user_workspace(user_id)
@@ -963,10 +1145,16 @@ def saved_jobs(user_id: str = Depends(current_user)):
     for p in job_dir.glob("*.json"):
         try:
             job=json.loads(p.read_text(encoding="utf-8"))
-            model_id=job.get("model_id") or job.get("job_id") or p.stem
+            job_id=job.get("job_id") or p.stem
+            model_id=job.get("model_id") or job_id
             model_path=artifact_path(model_dir,model_id,".joblib")
             job["model_available"]=model_path.is_file()
             job["model_size_bytes"]=model_path.stat().st_size if model_path.is_file() else 0
+            if job.get("status") in {"queued","running"}:
+                job["status"]="interrupted"
+                job["error"]="The server restarted before this experiment finished. Retry will start the saved configuration from the beginning."
+                job["can_retry"]=bool(job.get("request_config"))
+                p.write_text(json.dumps(job,indent=2,default=str),encoding="utf-8")
             jobs.append(job)
         except Exception:
             pass
