@@ -72,8 +72,8 @@ type DatasetBackup={key:string;userId:string;datasetId:string;filename:string;bl
 const BACKUP_DB='automl-studio-browser-backups'
 function openBackupDb():Promise<IDBDatabase>{
  return new Promise((resolve,reject)=>{
-  const request=indexedDB.open(BACKUP_DB,1)
-  request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains('datasets'))db.createObjectStore('datasets',{keyPath:'key'})}
+  const request=indexedDB.open(BACKUP_DB,2)
+  request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains('datasets'))db.createObjectStore('datasets',{keyPath:'key'});if(!db.objectStoreNames.contains('experiments'))db.createObjectStore('experiments',{keyPath:'key'})}
   request.onsuccess=()=>resolve(request.result)
   request.onerror=()=>reject(request.error)
  })
@@ -86,6 +86,18 @@ async function saveDatasetBackup(userId:string,datasetId:string,filename:string,
 async function readDatasetBackup(userId:string,datasetId:string):Promise<DatasetBackup|null>{
  const db=await openBackupDb()
  const result=await new Promise<DatasetBackup|null>((resolve,reject)=>{const request=db.transaction('datasets','readonly').objectStore('datasets').get(userId+':'+datasetId);request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error)})
+ db.close()
+ return result
+}
+async function saveExperimentHistory(userId:string,jobs:any[]):Promise<void>{
+ const db=await openBackupDb()
+ const safeJobs=jobs.map(({result,...job})=>job)
+ await new Promise<void>((resolve,reject)=>{const tx=db.transaction('experiments','readwrite');tx.objectStore('experiments').put({key:userId,jobs:safeJobs,updatedAt:new Date().toISOString()});tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error)})
+ db.close()
+}
+async function readExperimentHistory(userId:string):Promise<any[]>{
+ const db=await openBackupDb()
+ const result=await new Promise<any[]>((resolve,reject)=>{const request=db.transaction('experiments','readonly').objectStore('experiments').get(userId);request.onsuccess=()=>resolve(request.result?.jobs||[]);request.onerror=()=>reject(request.error)})
  db.close()
  return result
 }
@@ -123,9 +135,10 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
  useEffect(()=>{SSelectedModels(models)},[task])
  useEffect(()=>{if(!p)return;const xs=chartXColumns;if(xs.length&&!xs.some((c:any)=>c.column===x))SX(xs[0].column);if(!xs.length)SX('');const ys=chartYColumns;if(ys.length&&!ys.some((c:any)=>c.column===y))SY(ys[0].column);if(!ys.length)SY('')},[kind,p])
 
- async function refresh(){const a=await api('/workspace'),b=await api('/workspace/jobs');SW(a);SJ(b.jobs||[]);STQ(b.jobs||[])}
+ async function refresh(){const a=await api('/workspace'),b=await api('/workspace/jobs');const serverJobs=b.jobs||[];const localJobs=await readExperimentHistory(user.id).catch(()=>[]);const byId=new Map<string,any>();for(const job of localJobs)byId.set(job.job_id,job);for(const job of serverJobs)byId.set(job.job_id,job);const merged=[...byId.values()].sort((x,y)=>String(y.created_at||'').localeCompare(String(x.created_at||'')));SW(a);SJ(merged);STQ(merged);void saveExperimentHistory(user.id,merged).catch(()=>{})}
  useEffect(()=>{if(!p?.dataset_id)return;dashboardReady.current=false;try{const saved=localStorage.getItem('automl-dashboard:'+user.id+':'+p.dataset_id);if(saved){const value=JSON.parse(saved);SCH(Array.isArray(value.charts)?value.charts:[]);SG([1,2,3].includes(value.columns)?value.columns:1)}else SCH([])}catch{SCH([])}dashboardReady.current=true},[p?.dataset_id,user.id])
  useEffect(()=>{if(!dashboardReady.current||!p?.dataset_id)return;try{localStorage.setItem('automl-dashboard:'+user.id+':'+p.dataset_id,JSON.stringify({charts:Array.isArray(chart)?chart:[],columns:grid}))}catch{}},[chart,grid,p?.dataset_id,user.id])
+ useEffect(()=>{if(trainingQueue.length)void saveExperimentHistory(user.id,trainingQueue).catch(()=>{})},[trainingQueue,user.id])
  useEffect(()=>{(async()=>{await refresh();await recoverActiveDataset()})().catch(error=>ER(error instanceof Error?error.message:String(error))).finally(()=>setInitialLoading(false))},[])
  async function signOut(){try{await onSignOut()}catch(error){ER(String(error))}}
  async function cacheDatasetBackup(datasetId:string,filename:string){
