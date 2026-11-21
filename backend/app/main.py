@@ -1045,7 +1045,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
                 completed = model_index + 1
                 elapsed = time.monotonic() - job_started
                 avg = elapsed / completed
-                update_training_record(user_id, assigned_model_id, {"completed_models": completed, "total_models": total_models, "progress_pct": round(completed / total_models * 100), "elapsed_seconds": int(elapsed), "eta_seconds": int(avg * (total_models - completed)), "current_model": None if completed == total_models else name})
+                update_training_record(user_id, assigned_model_id, {"completed_models": completed, "total_models": total_models, "progress_pct": round(completed / total_models * 100), "elapsed_seconds": int(elapsed), "eta_seconds": int(avg * (total_models - completed)), "current_model": None})
 
     if cancel_event and cancel_event.is_set():
         raise HTTPException(409, "Training was cancelled.")
