@@ -147,7 +147,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
    if(!backup)throw error
    const form=new FormData();form.append('file',backup.blob,backup.filename)
    const restored=await api('/datasets/'+p.dataset_id+'/restore',{method:'POST',body:form})
-   await loaded({...restored,filename:backup.filename})
+   SP({...restored,filename:p.filename});setActiveDatasetRef(user.id,p.dataset_id,p.filename);await cacheDatasetBackup(p.dataset_id,p.filename);SE(await api('/datasets/'+p.dataset_id+'/eda'))
   }
  }
  async function upload(file?:File){if(!file)return;SB(true);ER('');try{const f=new FormData();f.append('file',file);const dataset=await api('/datasets',{method:'POST',body:f});try{await saveDatasetBackup(user.id,dataset.dataset_id,file.name,file)}catch{}setActiveDatasetRef(user.id,dataset.dataset_id,file.name);await loaded(dataset);S('overview')}catch(e){ER(String(e))}finally{SB(false)}}
