@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hashlib, io, json, os, re, uuid, warnings
+import gc, hashlib, io, json, os, re, threading, uuid, warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -168,20 +168,20 @@ def candidates(task: str) -> dict[str, Any]:
     if task == "classification":
         return {"Logistic Regression":LogisticRegression(max_iter=1500,class_weight="balanced"),
             "Decision Tree":DecisionTreeClassifier(random_state=42,class_weight="balanced"),
-            "Random Forest":RandomForestClassifier(n_estimators=160,random_state=42,n_jobs=-1,class_weight="balanced"),
-            "Extra Trees":ExtraTreesClassifier(n_estimators=160,random_state=42,n_jobs=-1,class_weight="balanced"),
+            "Random Forest":RandomForestClassifier(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
+            "Extra Trees":ExtraTreesClassifier(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
             "Gradient Boosting":GradientBoostingClassifier(random_state=42),
             "Histogram Gradient Boosting":HistGradientBoostingClassifier(random_state=42),
             "AdaBoost":AdaBoostClassifier(random_state=42),"K-Nearest Neighbors":KNeighborsClassifier(),
-            "Support Vector Machine":SVC(class_weight="balanced",probability=True),"Naive Bayes":GaussianNB(),
-            "Neural Network (MLP)":MLPClassifier(hidden_layer_sizes=(64,32),max_iter=350,random_state=42)}
+            "Support Vector Machine":SVC(class_weight="balanced",probability=False),"Naive Bayes":GaussianNB(),
+            "Neural Network (MLP)":MLPClassifier(hidden_layer_sizes=(32,16),max_iter=150,early_stopping=True,random_state=42)}
     return {"Ridge Regression":Ridge(),"Decision Tree":DecisionTreeRegressor(random_state=42),
-        "Random Forest":RandomForestRegressor(n_estimators=160,random_state=42,n_jobs=-1),
-        "Extra Trees":ExtraTreesRegressor(n_estimators=160,random_state=42,n_jobs=-1),
+        "Random Forest":RandomForestRegressor(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1),
+        "Extra Trees":ExtraTreesRegressor(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1),
         "Gradient Boosting":GradientBoostingRegressor(random_state=42),
         "Histogram Gradient Boosting":HistGradientBoostingRegressor(random_state=42),
         "AdaBoost":AdaBoostRegressor(random_state=42),"K-Nearest Neighbors":KNeighborsRegressor(),
-        "Support Vector Regression":SVR(),"Neural Network (MLP)":MLPRegressor(hidden_layer_sizes=(64,32),max_iter=350,random_state=42)}
+        "Support Vector Regression":SVR(),"Neural Network (MLP)":MLPRegressor(hidden_layer_sizes=(32,16),max_iter=150,early_stopping=True,random_state=42)}
 
 def make_pipeline(X: pd.DataFrame, estimator: Any, scale: bool, selection: str = "none", k: int = 10, pca: int = 0, task: str = "classification") -> Pipeline:
     nums = X.select_dtypes(include=np.number).columns.tolist()
@@ -191,7 +191,7 @@ def make_pipeline(X: pd.DataFrame, estimator: Any, scale: bool, selection: str =
         steps = [("imputer",SimpleImputer(strategy="median"))]
         if scale: steps.append(("scale",StandardScaler()))
         parts.append(("num",Pipeline(steps),nums))
-    if cats: parts.append(("cat",Pipeline([("imputer",SimpleImputer(strategy="most_frequent")),("encode",OneHotEncoder(handle_unknown="ignore",sparse_output=False,min_frequency=2))]),cats))
+    if cats: parts.append(("cat",Pipeline([("imputer",SimpleImputer(strategy="most_frequent")),("encode",OneHotEncoder(handle_unknown="ignore",sparse_output=False,min_frequency=5,max_categories=30,dtype=np.float32))]),cats))
     steps: list[tuple[str,Any]] = [("prep",ColumnTransformer(parts,verbose_feature_names_out=False))]
     if selection == "kbest": steps.append(("select",SelectKBest(f_classif if task=="classification" else f_regression,k=max(1,min(k,len(X.columns))))))
     if selection == "variance": steps.append(("select",VarianceThreshold()))
@@ -292,15 +292,17 @@ def preprocess(dataset_id: str, req: Prep, user_id: str = Depends(current_user))
         if not cols: raise HTTPException(400,"Select columns to drop.")
         df=df.drop(columns=cols)
     elif op=="fill_missing":
-        for c in cols or df.columns.tolist():
-            if req.strategy=="mean" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(df[c].mean())
-            elif req.strategy=="median" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(df[c].median())
-            elif req.strategy=="mode" and not df[c].mode().empty: df[c]=df[c].fillna(df[c].mode().iloc[0])
-            elif req.strategy=="constant": df[c]=df[c].fillna(req.value or "Unknown")
-            elif req.strategy=="zero" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(0)
-            elif req.strategy=="ffill": df[c]=df[c].ffill()
-            elif req.strategy=="bfill": df[c]=df[c].bfill()
-            elif req.strategy=="drop": df=df.dropna(subset=[c])
+        selected=cols or df.columns.tolist()
+        if req.strategy=="drop": df=df.dropna(subset=selected)
+        else:
+            for c in selected:
+                if req.strategy=="mean" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(df[c].mean())
+                elif req.strategy=="median" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(df[c].median())
+                elif req.strategy=="mode" and not df[c].mode().empty: df[c]=df[c].fillna(df[c].mode().iloc[0])
+                elif req.strategy=="constant": df[c]=df[c].fillna(req.value or "Unknown")
+                elif req.strategy=="zero" and pd.api.types.is_numeric_dtype(df[c]): df[c]=df[c].fillna(0)
+                elif req.strategy=="ffill": df[c]=df[c].ffill()
+                elif req.strategy=="bfill": df[c]=df[c].bfill()
     elif op=="drop_high_missing": df=df.drop(columns=[c for c in df if df[c].isna().mean()>req.threshold])
     elif op in ("drop_outliers","clip_outliers"):
         for c in cols or df.select_dtypes(include=np.number).columns:
@@ -350,25 +352,50 @@ def feature_engineering(dataset_id: str, payload: dict[str,Any], user_id: str = 
 
 @app.post("/api/datasets/{dataset_id}/chart")
 def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(current_user)):
-    df=get_df(dataset_id, user_id); kind=payload.get("chart_type","bar"); x=payload.get("x"); y=payload.get("y")
-    rows=max(1,min(int(payload.get("rows",20)),500)); agg=payload.get("aggregation","mean")
-    if x not in df: raise HTTPException(400,"Choose a valid X-axis column.")
-    if kind in ("line","area","scatter","histogram") and y not in df: raise HTTPException(400,"Choose a valid numeric Y-axis column.")
+    df=get_df(dataset_id, user_id)
+    kind=payload.get("chart_type","bar")
+    x=payload.get("x")
+    y=payload.get("y")
+    rows=max(1,min(int(payload.get("rows",20)),500))
+    agg=payload.get("aggregation","mean")
     if kind=="heatmap":
-        corr=df.select_dtypes(include=np.number).iloc[:,:12].corr().round(3).replace({np.nan:None})
+        numeric=df.select_dtypes(include=np.number).iloc[:,:12]
+        corr=numeric.corr().round(3).replace({np.nan:None})
         data=[{"x":str(i),**{str(k):serial(v) for k,v in r.items()}} for i,r in corr.iterrows()]
-    elif kind=="histogram":
-        vals=pd.to_numeric(df[y],errors="coerce").dropna(); counts,edges=np.histogram(vals,bins=min(rows,60)) if len(vals) else ([],[])
+        return {"chart_type":kind,"x":None,"y":None,"rows":rows,"columns":max(1,min(int(payload.get("columns",1)),6)),"data":data}
+    if kind=="histogram":
+        column=x if x in df else y
+        if column not in df or not pd.api.types.is_numeric_dtype(df[column]):
+            raise HTTPException(400,"Choose a numeric column for the histogram.")
+        vals=pd.to_numeric(df[column],errors="coerce").dropna()
+        counts,edges=np.histogram(vals,bins=min(rows,60)) if len(vals) else ([],[])
         data=[{"x":f"{edges[i]:.4g}–{edges[i+1]:.4g}","value":int(counts[i])} for i in range(len(counts))]
-    elif kind=="pie" or kind=="count" or y not in df or not pd.api.types.is_numeric_dtype(df[y]):
+        return {"chart_type":kind,"x":column,"y":None,"rows":rows,"columns":max(1,min(int(payload.get("columns",1)),6)),"data":data}
+    if x not in df:
+        raise HTTPException(400,"Choose a valid category or X-axis column.")
+    if kind in ("pie","count"):
         data=[{"x":str(k),"value":int(v)} for k,v in df[x].astype("string").fillna("(Missing)").value_counts().head(rows).items()]
-    elif kind=="scatter":
-        data=[{"x":serial(a),"value":serial(b)} for a,b in zip(df[x].head(rows),df[y].head(rows)) if pd.notna(a) and pd.notna(b)]
+    elif kind in ("line","area","scatter"):
+        if y not in df:
+            raise HTTPException(400,"Choose a valid Y-axis column.")
+        if kind=="scatter":
+            if not pd.api.types.is_numeric_dtype(df[x]) or not pd.api.types.is_numeric_dtype(df[y]):
+                raise HTTPException(400,"Scatter plots require numeric X and Y columns.")
+            data=[{"x":serial(a),"value":serial(b)} for a,b in zip(df[x].head(rows),df[y].head(rows)) if pd.notna(a) and pd.notna(b)]
+        else:
+            if not pd.api.types.is_numeric_dtype(df[y]):
+                raise HTTPException(400,"Choose a numeric Y-axis column.")
+            grouped=df.groupby(x,dropna=False)[y]
+            values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
+            data=[{"x":str(k),"value":serial(v)} for k,v in values.items()]
     else:
-        grouped=df.groupby(x,dropna=False)[y]
-        values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
-        data=[{"x":str(k),"value":serial(v)} for k,v in values.items()]
-    return {"chart_type":kind,"x":x,"y":y,"rows":rows,"columns":max(1,min(int(payload.get("columns",1)),6)),"data":data}
+        if y in df and pd.api.types.is_numeric_dtype(df[y]):
+            grouped=df.groupby(x,dropna=False)[y]
+            values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
+            data=[{"x":str(k),"value":serial(v)} for k,v in values.items()]
+        else:
+            data=[{"x":str(k),"value":int(v)} for k,v in df[x].astype("string").fillna("(Missing)").value_counts().head(rows).items()]
+    return {"chart_type":kind,"x":x,"y":y if kind not in ("pie","count","histogram") else None,"rows":rows,"columns":max(1,min(int(payload.get("columns",1)),6)),"data":data}
 
 class Train(BaseModel):
     dataset_id: str
@@ -386,58 +413,80 @@ class Train(BaseModel):
     use_pca: bool = False
     pca_components: int = Field(default=0,ge=0,le=500)
 
+TRAINING_USERS: set[str] = set()
+TRAINING_USERS_LOCK = threading.Lock()
+
 @app.post("/api/train")
 def train(req: Train, user_id: str = Depends(current_user)):
-    source_df = get_df(req.dataset_id, user_id)
-    if req.target not in source_df.columns:
-        raise HTTPException(400, "Target column not found.")
-    df = source_df.dropna(subset=[req.target]).copy()
-    if req.task == "classification" and df[req.target].nunique(dropna=True) > 100:
-        raise HTTPException(400, "Target has more than 100 classes. Choose another target or use regression for a continuous numeric target.")
+    with TRAINING_USERS_LOCK:
+        if user_id in TRAINING_USERS:
+            raise HTTPException(409, "A training job is already running for this account. Wait for it to finish before starting another.")
+        TRAINING_USERS.add(user_id)
+    try:
+        return run_training(req, user_id)
+    finally:
+        with TRAINING_USERS_LOCK:
+            TRAINING_USERS.discard(user_id)
+
+def run_training(req: Train, user_id: str):
+    source_df=get_df(req.dataset_id,user_id)
+    if req.target not in source_df.columns: raise HTTPException(400,"Target column not found.")
+    df=source_df.dropna(subset=[req.target]).copy()
+    if req.task=="classification" and df[req.target].nunique(dropna=True)>100: raise HTTPException(400,"Target has more than 100 classes. Choose another target or use regression for a continuous numeric target.")
     if req.task=="regression" and not pd.api.types.is_numeric_dtype(df[req.target]): raise HTTPException(400,"Regression requires a numeric target.")
     if df[req.target].nunique()<2 or len(df)<10: raise HTTPException(400,"Need at least 10 rows and 2 target values.")
     cols=[c for c in (req.selected_features or df.columns.tolist()) if c in df and c!=req.target]
-    X=df[cols].dropna(axis=1,how="all"); y=df[req.target].astype(str) if req.task=="classification" else df[req.target]
-    X=X.copy()
-    for c in X:
+    X=df[cols].dropna(axis=1,how="all").copy()
+    y=df[req.target].astype(str) if req.task=="classification" else df[req.target]
+    for c in X.select_dtypes(include=np.number).columns: X[c]=pd.to_numeric(X[c],errors="coerce").astype(np.float32)
+    for c in list(X.columns):
         if pd.api.types.is_datetime64_any_dtype(X[c]):
-            dt=pd.to_datetime(X[c],errors="coerce"); X[c+"__year"]=dt.dt.year; X[c+"__month"]=dt.dt.month; X=X.drop(columns=[c])
+            dt=pd.to_datetime(X[c],errors="coerce")
+            X[c+"__year"]=dt.dt.year.astype(np.float32); X[c+"__month"]=dt.dt.month.astype(np.float32); X=X.drop(columns=[c])
     if req.drop_high_missing: X=X.loc[:,X.isna().mean()<=.8]
     if X.shape[1]==0: raise HTTPException(400,"No usable input features.")
     strat=y if req.task=="classification" and y.value_counts().min()>=2 else None
     try: Xtr,Xte,ytr,yte=train_test_split(X,y,test_size=req.test_size,random_state=req.random_state,stratify=strat)
-    except ValueError as e: raise HTTPException(400,f"Could not split data: {e}")
-    pool=candidates(req.task); chosen=pool if req.mode=="auto" else {req.model_name:pool[req.model_name]} if req.model_name in pool else {}
+    except ValueError as e: raise HTTPException(400,f"Could not split data: {e}") from e
+    pool=candidates(req.task)
+    chosen=pool if req.mode=="auto" else {req.model_name:pool[req.model_name]} if req.model_name in pool else {}
     if not chosen: raise HTTPException(400,"Selected model is not available for this task.")
-    results=[]; best=None; best_pipe=None
+    leaderboard=[]; best=None; best_pipe=None; best_predictions=[]; best_actual=[]
     for name,est in chosen.items():
+        pipe=None; pred=None
         try:
             pipe=make_pipeline(Xtr,est,req.scale_numeric,req.feature_selection,req.k_features,req.pca_components if req.use_pca else 0,req.task)
             pipe.fit(Xtr,ytr); pred=pipe.predict(Xte)
             if req.task=="classification":
-                metrics={"accuracy":round(float(accuracy_score(yte,pred)),4),"balanced_accuracy":round(float(balanced_accuracy_score(yte,pred)),4),
-                    "precision_weighted":round(float(precision_score(yte,pred,average="weighted",zero_division=0)),4),
-                    "recall_weighted":round(float(recall_score(yte,pred,average="weighted",zero_division=0)),4),
-                    "f1_weighted":round(float(f1_score(yte,pred,average="weighted",zero_division=0)),4)}
-                labels=list(pd.Series(yte).unique()); cm={"labels":[str(x) for x in labels],"matrix":confusion_matrix(yte,pred,labels=labels).tolist()}
-                evaluation={"metrics":metrics,"confusion_matrix":cm}; score=metrics["f1_weighted"]
+                metrics={"accuracy":round(float(accuracy_score(yte,pred)),4),"balanced_accuracy":round(float(balanced_accuracy_score(yte,pred)),4),"precision_weighted":round(float(precision_score(yte,pred,average="weighted",zero_division=0)),4),"recall_weighted":round(float(recall_score(yte,pred,average="weighted",zero_division=0)),4),"f1_weighted":round(float(f1_score(yte,pred,average="weighted",zero_division=0)),4)}
+                labels=list(pd.Series(yte).unique()); evaluation={"metrics":metrics,"confusion_matrix":{"labels":[str(v) for v in labels],"matrix":confusion_matrix(yte,pred,labels=labels).tolist()}}; score=metrics["f1_weighted"]
             else:
                 mse=mean_squared_error(yte,pred); metrics={"r2":round(float(r2_score(yte,pred)),4),"mae":round(float(mean_absolute_error(yte,pred)),4),"rmse":round(float(np.sqrt(mse)),4),"mse":round(float(mse),4)}
                 evaluation={"metrics":metrics}; score=metrics["r2"]
-            row={"model_name":name,"metrics":metrics,"primary_score":score,"evaluation":evaluation,"predictions":[serial(v) for v in pred],"actual":[serial(v) for v in yte]}
-            results.append(row)
-            if best is None or (score is not None and score>best["primary_score"]): best=row; best_pipe=pipe
-        except Exception as e: results.append({"model_name":name,"error":str(e),"metrics":{},"primary_score":None})
-    ok=[r for r in results if "error" not in r]
-    if not ok or best is None: raise HTTPException(400,"All candidate models failed: "+"; ".join(r["model_name"]+": "+r.get("error","") for r in results))
-    results=sorted(ok,key=lambda r:r["primary_score"] if r["primary_score"] is not None else -999,reverse=True)
-    _, model_dir, job_dir, _ = user_workspace(user_id)
-    mid=str(uuid.uuid4()); created=datetime.now().isoformat()
-    models[(user_id, mid)]={"pipeline":best_pipe,"task":req.task,"target":req.target,"feature_cols":cols,"model_name":best["model_name"],"dataset_id":req.dataset_id,"created_at":created}
-    joblib.dump(models[(user_id, mid)],model_dir/f"{mid}.joblib")
-    job={"job_id":mid,"model_id":mid,"dataset_id":req.dataset_id,"target":req.target,"task":req.task,"mode":req.mode,"best_model":best["model_name"],"created_at":created,"train_rows":len(Xtr),"test_rows":len(Xte),"leaderboard":[{"model_name":r["model_name"],"primary_score":r["primary_score"],**r["metrics"]} for r in results]}
+            leaderboard.append({"model_name":name,"metrics":metrics,"primary_score":score})
+            if best is None or (np.isfinite(score) and score>best["primary_score"]):
+                best={"model_name":name,"metrics":metrics,"evaluation":evaluation,"primary_score":score}
+                best_pipe=pipe; best_predictions=[serial(v) for v in pred]; best_actual=[serial(v) for v in yte]; pipe=None
+        except Exception as e:
+            leaderboard.append({"model_name":name,"error":str(e),"metrics":{},"primary_score":None})
+        finally:
+            if pipe is not None: del pipe
+            if pred is not None: del pred
+            del est
+            gc.collect()
+    successful=[r for r in leaderboard if "error" not in r]
+    if not successful or best is None or best_pipe is None:
+        raise HTTPException(400,"All candidate models failed: "+"; ".join(r["model_name"]+": "+r.get("error","") for r in leaderboard))
+    leaderboard=sorted(successful,key=lambda r:r["primary_score"] if r["primary_score"] is not None else -999,reverse=True)
+    _,model_dir,job_dir,_=user_workspace(user_id); mid=str(uuid.uuid4()); created=datetime.now().isoformat()
+    model_data={"pipeline":best_pipe,"task":req.task,"target":req.target,"feature_cols":cols,"model_name":best["model_name"],"dataset_id":req.dataset_id,"created_at":created}
+    models[(user_id,mid)]=model_data; joblib.dump(model_data,model_dir/f"{mid}.joblib",compress=3)
+    job={"job_id":mid,"model_id":mid,"dataset_id":req.dataset_id,"target":req.target,"task":req.task,"mode":req.mode,"best_model":best["model_name"],"created_at":created,"train_rows":len(Xtr),"test_rows":len(Xte),"leaderboard":[{"model_name":r["model_name"],"primary_score":r["primary_score"],**r["metrics"]} for r in leaderboard]}
     (job_dir/f"{mid}.json").write_text(json.dumps(job,indent=2),encoding="utf-8")
-    return {"model_id":mid,"task":req.task,"target":req.target,"mode":req.mode,"best_model":best["model_name"],"feature_columns":cols,"train_rows":len(Xtr),"test_rows":len(Xte),"results":results,"leaderboard":job["leaderboard"],"best_evaluation":best["evaluation"],"warnings":["Preprocessing is fitted on the training split.","Holdout metrics are estimates; repeated tuning can overfit the holdout."],"saved_locally":True}
+    response={"model_id":mid,"task":req.task,"target":req.target,"mode":req.mode,"best_model":best["model_name"],"feature_columns":cols,"train_rows":len(Xtr),"test_rows":len(Xte),"results":[{"model_name":best["model_name"],"metrics":best["metrics"],"evaluation":best["evaluation"],"predictions":best_predictions,"actual":best_actual}],"leaderboard":job["leaderboard"],"best_evaluation":best["evaluation"],"warnings":["Models are trained sequentially to reduce peak memory usage.","Only the best model's predictions are retained.","Preprocessing is fitted on the training split.","Holdout metrics are estimates; repeated tuning can overfit the holdout."],"saved_locally":True}
+    del source_df,df,X,y,Xtr,Xte,ytr,yte,best_pipe,model_data
+    gc.collect()
+    return response
 
 @app.post("/api/predict")
 async def predict(model_id: str = Form(...), file: UploadFile = File(...), include_actual_column: str = Form(default=""), user_id: str = Depends(current_user)):
