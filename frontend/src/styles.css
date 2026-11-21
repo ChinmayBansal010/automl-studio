@@ -119,3 +119,41 @@ main{margin-left:254px;width:calc(100% - 254px);min-width:0}header{min-height:10
  .phase-progress span{width:15px}
 }
 @media(max-width:380px){.workspace-header{gap:8px}.header-title h1{font-size:17px}.new-task-button{padding:7px 8px}.phase-nav{gap:7px}}
+
+
+/* Clear action feedback, skeletons, and cancellable training */
+button[data-working="true"]{position:relative;filter:saturate(.82);padding-right:34px!important}
+button[data-working="true"]::after{content:"";position:absolute;right:11px;top:50%;width:12px;height:12px;margin-top:-7px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:button-spin .65s linear infinite}
+@keyframes button-spin{to{transform:rotate(360deg)}}
+.busy-panel{display:flex;align-items:center;gap:13px;padding:15px 17px;margin-bottom:18px;border:1px solid #dce4ff;border-radius:12px;background:linear-gradient(105deg,#f0f3ff,#fff);box-shadow:0 7px 22px rgba(72,96,190,.07);color:#4055a0}
+.busy-panel>div{display:grid;gap:4px;min-width:0}
+.busy-panel strong{font-size:12px;font-weight:800}
+.busy-panel small{font-size:10px;color:#7885a8}
+.loader-ring{width:22px;height:22px;flex:0 0 22px;border:3px solid #d7defe;border-top-color:#526ee8;border-radius:50%;animation:button-spin .75s linear infinite}
+.busy-pulse{width:7px;height:7px;margin-left:auto;border-radius:50%;background:#5b76e8;box-shadow:0 0 0 5px #5b76e81a;animation:busy-pulse 1.2s ease-in-out infinite}
+@keyframes busy-pulse{50%{opacity:.35;transform:scale(.75)}}
+.skeleton-dashboard{display:grid;gap:16px;padding-top:10px}
+.skeleton-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}
+.skeleton{position:relative;overflow:hidden;border:1px solid #edf0f6;border-radius:12px;background:#f0f2f8}
+.skeleton::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.8),transparent);animation:skeleton-shimmer 1.35s ease-in-out infinite}
+@keyframes skeleton-shimmer{100%{transform:translateX(100%)}}
+.skeleton-metric{height:88px}
+.skeleton-card{height:190px}
+.skeleton-card.short{height:120px}
+.stop-button{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:41px;padding:10px 16px;border:1px solid #ffd6dc;border-radius:9px;background:linear-gradient(135deg,#fff1f3,#ffe7eb);color:#b52d48;font-size:11px;font-weight:800;box-shadow:0 5px 13px rgba(181,45,72,.08)}
+.stop-button:hover{background:linear-gradient(135deg,#ffe7eb,#ffdce2);border-color:#f7b9c4;transform:translateY(-1px)}
+.stop-square{display:inline-block;width:10px;height:10px;border-radius:2px;background:currentColor;box-shadow:0 0 0 4px rgba(181,45,72,.09)}
+.compact-stop{min-height:32px;padding:7px 10px;font-size:10px;flex:0 0 auto}
+.queue-status{font-size:10px;color:#78839a;font-weight:700;text-transform:capitalize}
+@media(max-width:900px){.skeleton-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){
+ .busy-panel{padding:12px;gap:10px}
+ .busy-panel small{line-height:1.45}
+ .skeleton-metric{height:76px}
+ .skeleton-card{height:160px}
+ .stop-button{min-height:39px}
+ .savedrow{flex-wrap:wrap}
+}
+@media(prefers-reduced-motion:reduce){
+ .loader-ring,.busy-pulse,.skeleton::after,button[data-working="true"]::after{animation:none}
+}
