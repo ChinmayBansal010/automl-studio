@@ -216,3 +216,7 @@ button[data-working="true"]::after{content:"";position:absolute;right:11px;top:5
  .experiment-row>.model-download-actions{justify-content:flex-start}
  .training-progress-meta{align-items:flex-start;flex-direction:column;gap:4px}
 }
+
+.training-job-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.training-job-actions .secondary{display:inline-flex;align-items:center;gap:6px}
+@media(max-width:680px){.training-job-actions{width:100%}.training-job-actions button{flex:1}}
