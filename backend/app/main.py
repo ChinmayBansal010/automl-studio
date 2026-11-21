@@ -868,7 +868,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         "Preprocessing was fitted on the training split."
     ]
     if sampled_for_memory:
-        warning_messages.append("The dataset exceeded 2,000 usable rows. A reproducible sample of 1,500 rows was used to stay within the free server memory limit.")
+        warning_messages.append("The dataset exceeded 1,500 usable rows. A reproducible sample of 1,500 rows was used to stay within the free server memory limit.")
 
     response = {
         "model_id": model_id, "task": req.task, "target": req.target, "mode": req.mode,
