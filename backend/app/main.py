@@ -169,7 +169,7 @@ def candidates(task: str) -> dict[str, Any]:
     if task == "classification":
         return {"Logistic Regression":LogisticRegression(max_iter=1500,class_weight="balanced"),
             "Decision Tree":DecisionTreeClassifier(random_state=42,class_weight="balanced"),
-            "Random Forest":RandomForestClassifier(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
+            "Random Forest":RandomForestClassifier(n_estimators=50,max_depth=12,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
             "Extra Trees":ExtraTreesClassifier(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1,class_weight="balanced"),
             "Gradient Boosting":GradientBoostingClassifier(random_state=42),
             "Histogram Gradient Boosting":HistGradientBoostingClassifier(random_state=42),
@@ -192,11 +192,11 @@ def make_pipeline(X: pd.DataFrame, estimator: Any, scale: bool, selection: str =
         steps = [("imputer",SimpleImputer(strategy="median"))]
         if scale: steps.append(("scale",StandardScaler()))
         parts.append(("num",Pipeline(steps),nums))
-    if cats: parts.append(("cat",Pipeline([("imputer",SimpleImputer(strategy="most_frequent")),("encode",OneHotEncoder(handle_unknown="ignore",sparse_output=False,min_frequency=5,max_categories=20,dtype=np.float32))]),cats))
+    if cats: parts.append(("cat",Pipeline([("imputer",SimpleImputer(strategy="most_frequent")),("encode",OneHotEncoder(handle_unknown="ignore",sparse_output=False,min_frequency=5,max_categories=10,dtype=np.float32))]),cats))
     steps: list[tuple[str,Any]] = [("prep",ColumnTransformer(parts,verbose_feature_names_out=False))]
     if selection == "kbest": steps.append(("select",SelectKBest(f_classif if task=="classification" else f_regression,k=max(1,min(k,len(X.columns))))))
     if selection == "variance": steps.append(("select",VarianceThreshold()))
-    if pca: steps.append(("pca",PCA(n_components=max(1,min(pca,len(X.columns))),random_state=42)))
+    if pca: steps.append(("pca",PCA(n_components=max(1,min(pca,len(X.columns),max(1,len(X)-1))),random_state=42)))
     steps.append(("model",estimator))
     return Pipeline(steps)
 
@@ -539,7 +539,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
     if df[req.target].nunique(dropna=True) < 2 or len(df) < 10:
         raise HTTPException(400, "Need at least 10 usable rows and at least 2 target values.")
 
-    sampled_for_memory = len(df) > 8000
+    sampled_for_memory = len(df) > 5000
     if sampled_for_memory:
         stratify_sample = None
         if req.task == "classification":
@@ -547,9 +547,9 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
             if len(counts) <= 100 and counts.min() >= 2:
                 stratify_sample = df[req.target]
         try:
-            df, _ = train_test_split(df, train_size=8000, random_state=req.random_state, stratify=stratify_sample)
+            df, _ = train_test_split(df, train_size=5000, random_state=req.random_state, stratify=stratify_sample)
         except ValueError:
-            df = df.sample(n=8000, random_state=req.random_state)
+            df = df.sample(n=5000, random_state=req.random_state)
 
     if req.selected_features is None:
         input_feature_cols = [c for c in df.columns if c != req.target]
@@ -572,7 +572,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
         raise HTTPException(400, "No usable input features remain after missing-value filtering.")
 
     for c in X.select_dtypes(include=np.number).columns:
-        X[c] = pd.to_numeric(X[c], errors="coerce").astype(np.float32)
+        X[c] = pd.to_numeric(X[c], errors="coerce").replace([np.inf, -np.inf], np.nan).astype(np.float32)
     for c in list(X.columns):
         if pd.api.types.is_datetime64_any_dtype(X[c]):
             dt = pd.to_datetime(X[c], errors="coerce")
@@ -680,7 +680,7 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None)
         "Preprocessing was fitted on the training split."
     ]
     if sampled_for_memory:
-        warning_messages.append("The dataset exceeded 8,000 usable rows. A reproducible sample of 8,000 rows was used to stay within the free server memory limit.")
+        warning_messages.append("The dataset exceeded 5,000 usable rows. A reproducible sample of 5,000 rows was used to stay within the free server memory limit.")
 
     response = {
         "model_id": model_id, "task": req.task, "target": req.target, "mode": req.mode,
@@ -709,6 +709,8 @@ async def predict(model_id: str = Form(...), file: UploadFile = File(...), inclu
     m=models[model_key]; missing=[c for c in m["feature_cols"] if c not in df]
     if missing: raise HTTPException(400,"Missing required columns: "+", ".join(missing))
     X=df[m["feature_cols"]].copy()
+    for c in X.select_dtypes(include=np.number).columns:
+        X[c] = pd.to_numeric(X[c], errors="coerce").replace([np.inf, -np.inf], np.nan).astype(np.float32)
     for c in X:
         if pd.api.types.is_datetime64_any_dtype(X[c]):
             dt=pd.to_datetime(X[c],errors="coerce"); X[c+"__year"]=dt.dt.year; X[c+"__month"]=dt.dt.month; X=X.drop(columns=[c])
