@@ -919,10 +919,31 @@ def download_predictions(export_id: str, user_id: str = Depends(current_user)):
 
 @app.get("/api/models/{model_id}/download")
 def download_model(model_id: str, user_id: str = Depends(current_user)):
-    _, model_dir, _, _ = user_workspace(user_id)
+    _, model_dir, job_dir, _ = user_workspace(user_id)
     path=artifact_path(model_dir, model_id, ".joblib")
-    if not path.exists(): raise HTTPException(404,"Model file not found.")
-    return StreamingResponse(open(path,"rb"),media_type="application/octet-stream",headers={"Content-Disposition":f"attachment; filename={model_id}.joblib"})
+    if not path.exists():
+        raise HTTPException(404,"Saved model file not found. It may have been removed from the server workspace.")
+    metadata_path=artifact_path(job_dir, model_id, ".json")
+    metadata={}
+    if metadata_path.exists():
+        try:
+            metadata=json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError,ValueError):
+            metadata={}
+    def filename_part(value: Any) -> str:
+        cleaned=re.sub(r"[^A-Za-z0-9_-]+","-",str(value or "").strip()).strip("-_")
+        return cleaned[:48] or "model"
+    filename="-".join([
+        filename_part(metadata.get("best_model")),
+        filename_part(metadata.get("task")),
+        filename_part(metadata.get("target")),
+        model_id[:8]
+    ])+".joblib"
+    return StreamingResponse(
+        open(path,"rb"),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition":f'attachment; filename="{filename}"'}
+    )
 
 @app.get("/api/workspace")
 def workspace(user_id: str = Depends(current_user)):
@@ -937,11 +958,18 @@ def workspace(user_id: str = Depends(current_user)):
 
 @app.get("/api/workspace/jobs")
 def saved_jobs(user_id: str = Depends(current_user)):
-    _, _, job_dir, _ = user_workspace(user_id)
+    _, model_dir, job_dir, _ = user_workspace(user_id)
     jobs=[]
     for p in job_dir.glob("*.json"):
-        try: jobs.append(json.loads(p.read_text(encoding="utf-8")))
-        except Exception: pass
+        try:
+            job=json.loads(p.read_text(encoding="utf-8"))
+            model_id=job.get("model_id") or job.get("job_id") or p.stem
+            model_path=artifact_path(model_dir,model_id,".joblib")
+            job["model_available"]=model_path.is_file()
+            job["model_size_bytes"]=model_path.stat().st_size if model_path.is_file() else 0
+            jobs.append(job)
+        except Exception:
+            pass
     return {"jobs":sorted(jobs,key=lambda x:x.get("created_at",""),reverse=True)}
 
 @app.post("/api/workspace/datasets/{dataset_id}/load")
