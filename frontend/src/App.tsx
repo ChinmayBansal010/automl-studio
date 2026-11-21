@@ -74,7 +74,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
  const needsColumns=['fill_missing','drop_missing_rows','drop_columns','drop_outliers','clip_outliers','convert_numeric','convert_datetime','rename_column'].includes(op)
  const bestResult=model?.results?.find((r:any)=>r.model_name===model.best_model)
  const actualPredictedRows=bestResult?(bestResult.actual||[]).map((actual:any,i:number)=>({Actual:actual,Predicted:bestResult.predictions?.[i]??null,...(model.task==='classification'?{Correct:actual===bestResult.predictions?.[i]?'Yes':'No'}:{})})):[]
- const regressionPoints=bestResult?(bestResult.actual||[]).map((actual:any,i:number)=>({actual:Number(actual),predicted:Number(bestResult.predictions?.[i])})).filter((v:any)=>Number.isFinite(v.actual)&&Number.isFinite(v.predicted)):[]
+ const regressionPoints=bestResult?(bestResult.actual||[]).map((actual:any,i:number)=>({actual,predicted:bestResult.predictions?.[i]})).filter((v:any)=>v.actual!==null&&v.actual!==undefined&&v.predicted!==null&&v.predicted!==undefined&&Number.isFinite(Number(v.actual))&&Number.isFinite(Number(v.predicted))).map((v:any)=>({actual:Number(v.actual),predicted:Number(v.predicted)})):[]
  const confusionRows=(cm:any)=>cm?[
    {'Actual class ↓ / Predicted class →':'',...Object.fromEntries(cm.labels.map((label:string)=>[label,label]))},
    ...cm.labels.map((label:string,i:number)=>({'Actual class ↓ / Predicted class →':label,...Object.fromEntries(cm.labels.map((predicted:string,j:number)=>[predicted,cm.matrix[i]?.[j]??0]))}))
