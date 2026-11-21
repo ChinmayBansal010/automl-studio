@@ -63,6 +63,34 @@ class TrainingTests(unittest.TestCase):
         self.assertIn("Ridge Regression", regression)
         self.assertNotIn("Ridge Regression", classification)
 
+    def test_multiple_jobs_can_be_queued_without_parallel_training(self):
+        class FakeExecutor:
+            def __init__(self):
+                self.submitted = []
+
+            def submit(self, function, *args):
+                self.submitted.append((function, args))
+
+        request = main.Train(
+            dataset_id="dataset-test",
+            target="target",
+            task="classification",
+            mode="manual",
+            model_name="Decision Tree",
+            selected_features=["feature"],
+        )
+        fake_executor = FakeExecutor()
+        with patch.object(main, "TRAINING_EXECUTOR", fake_executor), patch.dict(main.TRAINING_JOBS, {}, clear=True):
+            first = main.train(request, "queue-user")
+            second = main.train(request, "queue-user")
+            self.assertEqual(first["status"], "queued")
+            self.assertEqual(second["status"], "queued")
+            self.assertEqual(len(fake_executor.submitted), 2)
+            self.assertEqual(main.training_job_status(first["job_id"], "queue-user")["status"], "queued")
+            with self.assertRaises(HTTPException) as denied:
+                main.training_job_status(first["job_id"], "another-user")
+            self.assertEqual(denied.exception.status_code, 404)
+
     def test_regression_rejects_categorical_target(self):
         frame = pd.DataFrame({
             "feature": np.arange(20, dtype=float),
