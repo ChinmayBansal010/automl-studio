@@ -173,7 +173,7 @@ def candidates(task: str) -> dict[str, Any]:
             "Gradient Boosting":GradientBoostingClassifier(random_state=42),
             "Histogram Gradient Boosting":HistGradientBoostingClassifier(random_state=42),
             "AdaBoost":AdaBoostClassifier(random_state=42),"K-Nearest Neighbors":KNeighborsClassifier(),
-            "Support Vector Machine":SVC(class_weight="balanced",probability=False),"Naive Bayes":GaussianNB(),
+            "Support Vector Machine":SVC(kernel="linear",class_weight="balanced",probability=False),"Naive Bayes":GaussianNB(),
             "Neural Network (MLP)":MLPClassifier(hidden_layer_sizes=(32,16),max_iter=150,early_stopping=True,random_state=42)}
     return {"Ridge Regression":Ridge(),"Decision Tree":DecisionTreeRegressor(random_state=42),
         "Random Forest":RandomForestRegressor(n_estimators=80,max_depth=16,min_samples_leaf=2,max_samples=0.8,random_state=42,n_jobs=1),
@@ -191,7 +191,7 @@ def make_pipeline(X: pd.DataFrame, estimator: Any, scale: bool, selection: str =
         steps = [("imputer",SimpleImputer(strategy="median"))]
         if scale: steps.append(("scale",StandardScaler()))
         parts.append(("num",Pipeline(steps),nums))
-    if cats: parts.append(("cat",Pipeline([("imputer",SimpleImputer(strategy="most_frequent")),("encode",OneHotEncoder(handle_unknown="ignore",sparse_output=False,min_frequency=5,max_categories=30,dtype=np.float32))]),cats))
+    if cats: parts.append(("cat",Pipeline([("imputer",SimpleImputer(strategy="most_frequent")),("encode",OneHotEncoder(handle_unknown="ignore",sparse_output=False,min_frequency=5,max_categories=20,dtype=np.float32))]),cats))
     steps: list[tuple[str,Any]] = [("prep",ColumnTransformer(parts,verbose_feature_names_out=False))]
     if selection == "kbest": steps.append(("select",SelectKBest(f_classif if task=="classification" else f_regression,k=max(1,min(k,len(X.columns))))))
     if selection == "variance": steps.append(("select",VarianceThreshold()))
@@ -432,6 +432,10 @@ def run_training(req: Train, user_id: str):
     source_df=get_df(req.dataset_id,user_id)
     if req.target not in source_df.columns: raise HTTPException(400,"Target column not found.")
     df=source_df.dropna(subset=[req.target]).copy()
+    sampled_for_memory=len(df)>8000
+    if sampled_for_memory:
+        sample_stratify=df[req.target] if req.task=="classification" and df[req.target].value_counts().min()>=2 else None
+        df,_=train_test_split(df,train_size=8000,random_state=req.random_state,stratify=sample_stratify)
     if req.task=="classification" and df[req.target].nunique(dropna=True)>100: raise HTTPException(400,"Target has more than 100 classes. Choose another target or use regression for a continuous numeric target.")
     if req.task=="regression" and not pd.api.types.is_numeric_dtype(df[req.target]): raise HTTPException(400,"Regression requires a numeric target.")
     if df[req.target].nunique()<2 or len(df)<10: raise HTTPException(400,"Need at least 10 rows and 2 target values.")
@@ -483,7 +487,7 @@ def run_training(req: Train, user_id: str):
     models[(user_id,mid)]=model_data; joblib.dump(model_data,model_dir/f"{mid}.joblib",compress=3)
     job={"job_id":mid,"model_id":mid,"dataset_id":req.dataset_id,"target":req.target,"task":req.task,"mode":req.mode,"best_model":best["model_name"],"created_at":created,"train_rows":len(Xtr),"test_rows":len(Xte),"leaderboard":[{"model_name":r["model_name"],"primary_score":r["primary_score"],**r["metrics"]} for r in leaderboard]}
     (job_dir/f"{mid}.json").write_text(json.dumps(job,indent=2),encoding="utf-8")
-    response={"model_id":mid,"task":req.task,"target":req.target,"mode":req.mode,"best_model":best["model_name"],"feature_columns":cols,"train_rows":len(Xtr),"test_rows":len(Xte),"results":[{"model_name":best["model_name"],"metrics":best["metrics"],"evaluation":best["evaluation"],"predictions":best_predictions,"actual":best_actual}],"leaderboard":job["leaderboard"],"best_evaluation":best["evaluation"],"warnings":["Models are trained sequentially to reduce peak memory usage.","Only the best model's predictions are retained.","Preprocessing is fitted on the training split.","Holdout metrics are estimates; repeated tuning can overfit the holdout."],"saved_locally":True}
+    response={"model_id":mid,"task":req.task,"target":req.target,"mode":req.mode,"best_model":best["model_name"],"feature_columns":cols,"train_rows":len(Xtr),"test_rows":len(Xte),"results":[{"model_name":best["model_name"],"metrics":best["metrics"],"evaluation":best["evaluation"],"predictions":best_predictions,"actual":best_actual}],"leaderboard":job["leaderboard"],"best_evaluation":best["evaluation"],"warnings":["Models are trained sequentially to reduce peak memory usage.","Only the best model predictions are retained.","Preprocessing is fitted on the training split.","Holdout metrics are estimates; repeated tuning can overfit the holdout."].concat(sampled_for_memory ? ["Dataset exceeded 8,000 rows; a stratified random sample of 8,000 rows was used to stay within the free server memory limit."] : []),"saved_locally":True}
     del source_df,df,X,y,Xtr,Xte,ytr,yte,best_pipe,model_data
     gc.collect()
     return response
