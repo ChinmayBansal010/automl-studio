@@ -600,7 +600,7 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
     rows=max(1,min(int(payload.get("rows",20)),500))
     agg=payload.get("aggregation","mean")
     columns=max(1,min(int(payload.get("columns",1)),6))
-    if kind not in {"bar","line","area","scatter","pie","count","histogram","heatmap","density","box","radar","ecdf","qq","violin"}:
+    if kind not in {"bar","line","area","step","scatter","pie","count","pareto","histogram","heatmap","density","box","radar","ecdf","qq","violin"}:
         raise HTTPException(400,"Choose a supported chart type.")
     if kind=="heatmap":
         numeric=df.select_dtypes(include=np.number).iloc[:,:12]
@@ -677,6 +677,15 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
         return {"chart_type":kind,"x":column,"y":None,"x_label":column,"y_label":"Frequency","rows":rows,"columns":columns,"data":data}
     if x not in df:
         raise HTTPException(400,"Choose a valid category or X-axis column.")
+    if kind=="pareto":
+        counts=df[x].astype("string").fillna("(Missing)").value_counts().head(rows)
+        total=float(counts.sum())
+        running=0
+        data=[]
+        for label,value in counts.items():
+            running+=int(value)
+            data.append({"x":str(label),"value":int(value),"cumulative_pct":float(running/total*100) if total else 0.0})
+        return {"chart_type":kind,"x":x,"y":None,"x_label":x,"y_label":"Count / cumulative %","rows":rows,"columns":columns,"data":data}
     if kind in ("pie","count"):
         data=[{"x":str(k),"value":int(v)} for k,v in df[x].astype("string").fillna("(Missing)").value_counts().head(rows).items()]
         return {"chart_type":kind,"x":x,"y":None,"x_label":None,"y_label":None,"rows":rows,"columns":columns,"data":data}
@@ -688,7 +697,7 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
         pairs=pd.DataFrame({"x":pd.to_numeric(df[x],errors="coerce"),"value":pd.to_numeric(df[y],errors="coerce")}).replace([np.inf,-np.inf],np.nan).dropna().head(rows)
         data=[{"x":serial(a),"value":serial(b)} for a,b in zip(pairs["x"],pairs["value"])]
         return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
-    if kind in ("line","area"):
+    if kind in ("line","area","step"):
         if y not in df:
             raise HTTPException(400,"Choose a valid Y-axis column.")
         if not pd.api.types.is_numeric_dtype(df[y]):
