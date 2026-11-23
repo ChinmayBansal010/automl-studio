@@ -6,6 +6,7 @@ PyJWT[crypto]>=2.10,<3.0
 pandas>=2.1
 numpy>=1.26
 scikit-learn>=1.4
+scipy>=1.11
 matplotlib>=3.8
 seaborn>=0.13
 joblib>=1.3
