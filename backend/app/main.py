@@ -600,7 +600,7 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
     rows=max(1,min(int(payload.get("rows",20)),500))
     agg=payload.get("aggregation","mean")
     columns=max(1,min(int(payload.get("columns",1)),6))
-    if kind not in {"bar","line","area","step","scatter","pie","count","pareto","histogram","heatmap","density","box","radar","ecdf","qq","violin"}:
+    if kind not in {"bar","line","area","step","scatter","pie","count","pareto","histogram","heatmap","density","box","radar","ecdf","qq"}:
         raise HTTPException(400,"Choose a supported chart type.")
     if kind=="heatmap":
         numeric=df.select_dtypes(include=np.number).iloc[:,:12]
@@ -655,18 +655,6 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
         indices=np.linspace(0,len(vals)-1,min(rows*5,len(vals)),dtype=int)
         data=[{"theoretical":float(theoretical[i]),"observed":float(observed[i])} for i in indices]
         return {"chart_type":kind,"x":x,"y":None,"x_label":"Theoretical normal quantiles","y_label":"Observed quantiles","rows":rows,"columns":columns,"data":data}
-    if kind=="violin":
-        if x not in df or y not in df or not pd.api.types.is_numeric_dtype(df[y]):
-            raise HTTPException(400,"Violin plots require a category X axis and numeric Y axis.")
-        grouped=df.groupby(x,dropna=False)[y]
-        data=[]
-        for label,values in grouped:
-            values=pd.to_numeric(values,errors="coerce").replace([np.inf,-np.inf],np.nan).dropna()
-            if values.empty: continue
-            q1=float(values.quantile(.25)); median=float(values.median()); q3=float(values.quantile(.75))
-            data.append({"x":str(label),"min":float(values.min()),"q1":q1,"median":median,"q3":q3,"max":float(values.max()),"range":[median-q1,q3-median],"count":int(len(values))})
-            if len(data)>=rows: break
-        return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
     if kind=="histogram":
         column=x if x in df else y
         if column not in df or not pd.api.types.is_numeric_dtype(df[column]):
