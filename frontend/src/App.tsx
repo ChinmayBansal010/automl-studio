@@ -275,7 +275,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
 {card('Chart dashboard',<>
 <p>Each generated graph is added to this dashboard. Choose a layout to arrange multiple graphs together.</p>
 <div className="formgrid">
-{field('Graph type',<select value={kind} onChange={e=>SK(e.target.value)}>{['bar','line','area','scatter','pie','count','histogram','heatmap','density','box','radar','ecdf','qq','step','pareto'].map(v=><option key={v}>{v==='box'?'box plot':v}</option>)}</select>)}
+{field('Graph type',<select value={kind} onChange={e=>SK(e.target.value)}>{['bar','line','area','scatter','pie','count','histogram','heatmap','density','box','radar','ecdf','qq','step','pareto'].map(v=><option key={v}>{v.replace(/\b\w/g, (letter:string) => letter.toUpperCase())}</option>)}</select>)}
 {kind!=='heatmap'&&field(kind==='histogram'?'Numeric column':kind==='scatter'?'Numeric X axis':'X axis / category',<select value={x} onChange={e=>SX(e.target.value)}>{chartXColumns.map((col:any)=><option key={col.column} value={col.column}>{col.column}</option>)}</select>)}
 {['line','area','scatter','bar','box','radar'].includes(kind)&&field('Numeric Y axis / value',<select value={y} onChange={e=>SY(e.target.value)}>{chartYColumns.map((col:any)=><option key={col.column} value={col.column}>{col.column}</option>)}</select>)}
 {['bar','line','area','step','radar'].includes(kind)&&field('Aggregation',<select value={agg} onChange={e=>SA(e.target.value)}>{['mean','sum','median','count','min','max'].map(v=><option key={v}>{v}</option>)}</select>)}
@@ -286,7 +286,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
 </>)}
 {Array.isArray(chart)&&chart.length>0&&<div className="chart-dashboard" style={{gridTemplateColumns:'repeat('+grid+',minmax(0,1fr))'}}>
 {chart.map((item:any,index:number)=><section className="card chart-card" key={index}>
-<div className="chart-card-heading"><h2>{item.chart_type} chart · {index+1}</h2><div className="actions" data-export-ignore="true"><button className="secondary" onClick={()=>void downloadChartPng(index)} disabled={busy}><Download size={14}/> PNG</button><button className="secondary" onClick={()=>SCH((current:any[])=>current.filter((_:any,i:number)=>i!==index))}>Remove</button></div></div>
+<div className="chart-card-heading"><h2>{item.chart_type.replace(/\b\w/g, (letter:string) => letter.toUpperCase())} Chart · {index+1}</h2><div className="actions" data-export-ignore="true"><button className="secondary" onClick={()=>void downloadChartPng(index)} disabled={busy}><Download size={14}/> PNG</button><button className="secondary" onClick={()=>SCH((current:any[])=>current.filter((_:any,i:number)=>i!==index))}>Remove</button></div></div>
 {item.chart_type==='heatmap'?(item.data?.length?table(item.data):<p>{item.message||'No numeric columns are available for this heatmap.'}</p>):<ResponsiveContainer width="100%" height={320}>
 {item.chart_type==='pie'?<PieChart><Tooltip/><Legend/><Pie data={item.data} dataKey="value" nameKey="x" outerRadius={105} label>{item.data.map((_:any,i:number)=><Cell key={i} fill={['#5978e8','#36a38b','#e6a34b','#b17de0','#e56d82'][i%5]}/>)}</Pie></PieChart>
 :item.chart_type==='scatter'?<ScatterChart><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="x" type="number" label={{value:item.x_label||'X',position:'insideBottom',offset:-5}}/><YAxis dataKey="value" label={{value:item.y_label||'Y',angle:-90,position:'insideLeft'}}/><Tooltip/><Scatter data={item.data} fill="#5978e8"/></ScatterChart>
