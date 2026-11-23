@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Activity, BarChart3, BrainCircuit, ChevronLeft, ChevronRight, Database, Download, FilePlus2, FlaskConical, Gauge, History, LogOut, RefreshCw, RotateCcw, Sparkles, Target, UploadCloud } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, ErrorBar, Legend, Line, LineChart, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from 'recharts'
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 import { AuthScreen } from './AuthScreen'
 import { authClient } from './auth'
 
@@ -127,7 +125,6 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
  const uploadInput=useRef<HTMLInputElement>(null)
  const dashboardReady=useRef(false)
  const evaluationRef=useRef<HTMLDivElement>(null)
- const chartDashboardRef=useRef<HTMLDivElement>(null)
  const [initialLoading,setInitialLoading]=useState(true)
  const [tab,S]=useState('overview'),[p,SP]=useState<any>(null),[eda,SE]=useState<any>(null),[err,ER]=useState(''),[busy,SB]=useState(false),[ws,SW]=useState<any>({saved_datasets:[],saved_models:0}),[jobs,SJ]=useState<any[]>([])
  const [op,SO]=useState('fill_missing'),[strategy,SS]=useState('median'),[cols,SC]=useState<string[]>([]),[featureCols,SFeatureCols]=useState<string[]>([]),[threshold,ST]=useState(.5),[newName,SN]=useState(''),[value,SV]=useState(''),[components,SCM]=useState(2),[sampleSize,SSample]=useState(1000)
@@ -137,46 +134,55 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
  const targetColumns=(p?.columns_info||[]).filter((c:any)=>c.unique>=2&&(task==='regression'?c.kind==='numeric':c.unique<=100))
  const chartXColumns=(p?.columns_info||[]).filter((c:any)=>kind==='heatmap'?false:['histogram','scatter','density','ecdf','qq'].includes(kind)?c.kind==='numeric':true)
  const chartYColumns=(p?.columns_info||[]).filter((c:any)=>['line','area','step','scatter','bar','box','radar'].includes(kind)?c.kind==='numeric':false)
- const chartExportName=(suffix:string)=>((p?.filename||'automl-dashboard').replace(/\\.[^.]+$/,'').replace(/[^a-z0-9-_]+/gi,'_')+'_'+suffix)
- async function renderExportNode(node:HTMLElement):Promise<HTMLCanvasElement>{
-  return html2canvas(node,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,windowWidth:Math.max(node.scrollWidth,window.innerWidth),onclone:cloned=>{cloned.querySelectorAll('[data-export-ignore="true"]').forEach(el=>(el as HTMLElement).style.display='none')}})
- }
  function saveCanvas(canvas:HTMLCanvasElement,filename:string){
   const link=document.createElement('a');link.download=filename;link.href=canvas.toDataURL('image/png');link.click()
  }
+ function chartExportName(index:number){return ((p?.filename||'automl-dashboard').replace(/\.[^.]+$/,'').replace(/[^a-z0-9-_]+/gi,'_')+'_chart_'+(index+1)+'.png')}
  async function downloadChartPng(index:number){
-  const node=chartDashboardRef.current?.querySelectorAll<HTMLElement>('.chart-card')[index]
-  if(!node){ER('Could not find this graph to export.');return}
-  SB(true);ER('')
-  try{const canvas=await renderExportNode(node);saveCanvas(canvas,chartExportName('chart_'+(index+1)+'.png'))}
-  catch(error){ER('Graph export failed: '+String(error))}
-  finally{SB(false)}
- }
- async function downloadDashboardPng(){
-  const node=chartDashboardRef.current
-  if(!node){ER('There are no graphs to export.');return}
-  SB(true);ER('')
-  try{const canvas=await renderExportNode(node);saveCanvas(canvas,chartExportName('dashboard.png'))}
-  catch(error){ER('Dashboard image export failed: '+String(error))}
-  finally{SB(false)}
- }
- async function downloadDashboardPdf(){
-  const node=chartDashboardRef.current
-  if(!node){ER('There are no graphs to export.');return}
+  const item=Array.isArray(chart)?chart[index]:null
+  const cardNode=document.querySelectorAll<HTMLElement>('.chart-card')[index]
+  if(!item||!cardNode){ER('Could not find this graph to export.');return}
   SB(true);ER('')
   try{
-   const canvas=await renderExportNode(node)
-   const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true})
-   const pageWidth=190,pageHeight=277,renderHeight=canvas.height*pageWidth/canvas.width
-   const image=canvas.toDataURL('image/png')
-   const pageCount=Math.max(1,Math.ceil(renderHeight/pageHeight))
-   for(let page=0;page<pageCount;page++){
-    if(page>0)pdf.addPage()
-    pdf.addImage(image,'PNG',10,10-page*pageHeight,pageWidth,renderHeight,undefined,'FAST')
+   const canvas=document.createElement('canvas')
+   if(item.chart_type==='heatmap'){
+    const rows=Array.isArray(item.data)?item.data:[]
+    const cols=rows.length?Object.keys(rows[0]):[]
+    const cellWidth=120,rowHeight=36,padding=24
+    canvas.width=Math.max(600,padding*2+cols.length*cellWidth);canvas.height=padding*2+(rows.length+1)*rowHeight
+    const ctx=canvas.getContext('2d')
+    if(!ctx)throw new Error('Canvas is unavailable')
+    ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height)
+    ctx.font='14px Arial';ctx.textBaseline='middle'
+    cols.forEach((col:string,i:number)=>{ctx.fillStyle='#263247';ctx.fillText(col,padding+i*cellWidth+8,padding+rowHeight/2)})
+    rows.forEach((row:any,r:number)=>cols.forEach((col:string,c:number)=>{const x=padding+c*cellWidth,y=padding+(r+1)*rowHeight;ctx.fillStyle=r%2?'#f4f6fa':'#ffffff';ctx.fillRect(x,y,cellWidth,rowHeight);ctx.strokeStyle='#dce2eb';ctx.strokeRect(x,y,cellWidth,rowHeight);ctx.fillStyle='#263247';ctx.fillText(String(row[col]??''),x+8,y+rowHeight/2)}))
+   }else{
+    const svg=cardNode.querySelector('svg')
+    if(!svg)throw new Error('The graph image is not available yet')
+    const bounds=svg.getBoundingClientRect(),clone=svg.cloneNode(true) as SVGSVGElement
+    clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width',String(Math.max(1,Math.round(bounds.width*2))));clone.setAttribute('height',String(Math.max(1,Math.round(bounds.height*2))))
+    const source=new XMLSerializer().serializeToString(clone)
+    const url=URL.createObjectURL(new Blob([source],{type:'image/svg+xml;charset=utf-8'}))
+    try{
+     const image=new Image()
+     await new Promise<void>((resolve,reject)=>{image.onload=()=>resolve();image.onerror=()=>reject(new Error('Could not render graph image'));image.src=url})
+     canvas.width=Math.max(1,Math.round(bounds.width*2));canvas.height=Math.max(1,Math.round(bounds.height*2))
+     const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas is unavailable')
+     ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height)
+    }finally{URL.revokeObjectURL(url)}
    }
-   pdf.save(chartExportName('dashboard.pdf'))
-  }catch(error){ER('Dashboard PDF export failed: '+String(error))}
+   saveCanvas(canvas,chartExportName(index))
+  }catch(error){ER('Graph export failed: '+String(error))}
   finally{SB(false)}
+ }
+ function downloadDashboardPdf(){
+  if(!Array.isArray(chart)||chart.length===0){ER('There are no graphs to export.');return}
+  const previousTitle=document.title
+  document.title=((p?.filename||'automl-dashboard').replace(/\.[^.]+$/,'')+'_dashboard')
+  const restore=()=>{document.title=previousTitle;window.removeEventListener('afterprint',restore)}
+  window.addEventListener('afterprint',restore)
+  window.print()
+  window.setTimeout(restore,1000)
  }
 
  const activeTrainingJob=trainingQueue.find((j:any)=>j.status==='queued'||j.status==='running')
@@ -269,9 +275,9 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
 {field('Max groups '+rows,<input type="range" min="5" max="100" step="5" value={rows} onChange={e=>SR(+e.target.value)}/>)}
 {field('Dashboard columns',<select value={grid} onChange={e=>SG(+e.target.value)}><option value={1}>1 column</option><option value={2}>2 columns</option><option value={3}>3 columns</option></select>)}
 </div>
-<div className="actions"><button className="primary" onClick={makeChart} disabled={busy||(kind!=='heatmap'&&!x)||(['line','area','step','scatter'].includes(kind)&&!y)}>Add graph to dashboard</button>{Array.isArray(chart)&&chart.length>0&&<><button className="secondary" onClick={()=>void downloadDashboardPng()} disabled={busy}><Download size={14}/> Download dashboard PNG</button><button className="secondary" onClick={()=>void downloadDashboardPdf()} disabled={busy}><Download size={14}/> Download dashboard PDF</button><button className="secondary" onClick={()=>SCH([])}>Clear dashboard</button></>}</div>
+<div className="actions"><button className="primary" onClick={makeChart} disabled={busy||(kind!=='heatmap'&&!x)||(['line','area','step','scatter'].includes(kind)&&!y)}>Add graph to dashboard</button>{Array.isArray(chart)&&chart.length>0&&<><button className="secondary" onClick={downloadDashboardPdf} disabled={busy}><Download size={14}/> Print / Save dashboard PDF</button><button className="secondary" onClick={()=>SCH([])}>Clear dashboard</button></>}</div>
 </>)}
-{Array.isArray(chart)&&chart.length>0&&<div ref={chartDashboardRef} className="chart-dashboard" style={{gridTemplateColumns:'repeat('+grid+',minmax(0,1fr))'}}>
+{Array.isArray(chart)&&chart.length>0&&<div className="chart-dashboard" style={{gridTemplateColumns:'repeat('+grid+',minmax(0,1fr))'}}>
 {chart.map((item:any,index:number)=><section className="card chart-card" key={index}>
 <div className="chart-card-heading"><h2>{item.chart_type} chart · {index+1}</h2><div className="actions" data-export-ignore="true"><button className="secondary" onClick={()=>void downloadChartPng(index)} disabled={busy}><Download size={14}/> PNG</button><button className="secondary" onClick={()=>SCH((current:any[])=>current.filter((_:any,i:number)=>i!==index))}>Remove</button></div></div>
 {item.chart_type==='heatmap'?(item.data?.length?table(item.data):<p>{item.message||'No numeric columns are available for this heatmap.'}</p>):<ResponsiveContainer width="100%" height={320}>
