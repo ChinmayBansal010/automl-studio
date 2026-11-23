@@ -600,7 +600,7 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
     rows=max(1,min(int(payload.get("rows",20)),500))
     agg=payload.get("aggregation","mean")
     columns=max(1,min(int(payload.get("columns",1)),6))
-    if kind not in {"bar","line","area","scatter","pie","count","histogram","heatmap","density","box","radar"}:
+    if kind not in {"bar","line","area","scatter","pie","count","histogram","heatmap","density","box","radar","ecdf","qq","violin"}:
         raise HTTPException(400,"Choose a supported chart type.")
     if kind=="heatmap":
         numeric=df.select_dtypes(include=np.number).iloc[:,:12]
@@ -634,6 +634,38 @@ def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(curren
         grouped=df.groupby(x,dropna=False)[y]
         values={"sum":grouped.sum(),"count":grouped.count(),"median":grouped.median(),"min":grouped.min(),"max":grouped.max()}.get(agg,grouped.mean()).head(rows)
         data=[{"x":str(label),"value":serial(value)} for label,value in values.items()]
+        return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
+    if kind=="ecdf":
+        if x not in df or not pd.api.types.is_numeric_dtype(df[x]):
+            raise HTTPException(400,"Choose a numeric column for the ECDF chart.")
+        vals=pd.to_numeric(df[x],errors="coerce").replace([np.inf,-np.inf],np.nan).dropna().sort_values()
+        if len(vals)>rows*20:
+            vals=vals.iloc[np.linspace(0,len(vals)-1,rows*20,dtype=int)]
+        n=len(vals)
+        data=[{"x":float(value),"value":float((i+1)/n)} for i,value in enumerate(vals)] if n else []
+        return {"chart_type":kind,"x":x,"y":None,"x_label":x,"y_label":"Cumulative probability","rows":rows,"columns":columns,"data":data}
+    if kind=="qq":
+        if x not in df or not pd.api.types.is_numeric_dtype(df[x]):
+            raise HTTPException(400,"Choose a numeric column for the Q-Q plot.")
+        vals=pd.to_numeric(df[x],errors="coerce").replace([np.inf,-np.inf],np.nan).dropna().to_numpy()
+        if len(vals)<3:
+            raise HTTPException(400,"A Q-Q plot requires at least three valid numeric values.")
+        from scipy import stats
+        theoretical, observed=stats.probplot(vals,dist="norm",fit=False)
+        indices=np.linspace(0,len(vals)-1,min(rows*5,len(vals)),dtype=int)
+        data=[{"theoretical":float(theoretical[i]),"observed":float(observed[i])} for i in indices]
+        return {"chart_type":kind,"x":x,"y":None,"x_label":"Theoretical normal quantiles","y_label":"Observed quantiles","rows":rows,"columns":columns,"data":data}
+    if kind=="violin":
+        if x not in df or y not in df or not pd.api.types.is_numeric_dtype(df[y]):
+            raise HTTPException(400,"Violin plots require a category X axis and numeric Y axis.")
+        grouped=df.groupby(x,dropna=False)[y]
+        data=[]
+        for label,values in grouped:
+            values=pd.to_numeric(values,errors="coerce").replace([np.inf,-np.inf],np.nan).dropna()
+            if values.empty: continue
+            q1=float(values.quantile(.25)); median=float(values.median()); q3=float(values.quantile(.75))
+            data.append({"x":str(label),"min":float(values.min()),"q1":q1,"median":median,"q3":q3,"max":float(values.max()),"range":[median-q1,q3-median],"count":int(len(values))})
+            if len(data)>=rows: break
         return {"chart_type":kind,"x":x,"y":y,"x_label":x,"y_label":y,"rows":rows,"columns":columns,"data":data}
     if kind=="histogram":
         column=x if x in df else y
