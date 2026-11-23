@@ -553,8 +553,6 @@ def feature_engineering(dataset_id: str, payload: dict[str,Any], user_id: str = 
         if not cols:
             raise HTTPException(400, "Select at least one column for feature engineering.")
         if op == "one_hot_encode":
-            if len(cols) == len(df.columns):
-                raise HTTPException(400, "Select at least one column to keep unchanged.")
             generated = pd.get_dummies(df[cols], columns=cols, dummy_na=bool(payload.get("dummy_na", False)), dtype=np.uint8)
             untouched = df.drop(columns=cols)
             collisions = sorted(set(generated.columns).intersection(untouched.columns))
