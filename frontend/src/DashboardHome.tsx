@@ -1,8 +1,8 @@
 import { useRef } from 'react'
-import { ArrowRight, Clock3, Database, FilePlus2, FlaskConical, FolderOpen, UploadCloud } from 'lucide-react'
+import { ArrowRight, Clock3, Database, FilePlus2, FlaskConical, FolderOpen } from 'lucide-react'
 
 type Dataset = { dataset_id: string; filename: string; saved_at?: string }
-type Job = { job_id: string; best_model?: string; model_name?: string; task?: string; target?: string; status?: string; created_at?: string }
+type Job = { job_id: string; best_model?: string; model_name?: string; task?: string; target?: string; status?: string; created_at?: string; model_id?: string }
 type ActiveDataset = { dataset_id: string; filename: string; rows?: number; columns?: number; missing_total?: number } | null
 
 type Props = {
@@ -37,7 +37,7 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
       <section className="home-summary-grid" aria-label="Workspace summary">
         <div className="home-summary-card"><span>Datasets</span><strong>{datasets.length}</strong><small>Available in your workspace</small></div>
         <div className="home-summary-card"><span>Experiments</span><strong>{jobs.length}</strong><small>Training runs and comparisons</small></div>
-        <div className="home-summary-card"><span>Saved models</span><strong>{jobs.filter(job => job.status === 'completed' && (job as any).model_id).length}</strong><small>Completed model artifacts</small></div>
+        <div className="home-summary-card"><span>Saved models</span><strong>{jobs.filter(job => job.status === 'completed' && job.model_id).length}</strong><small>Completed model artifacts</small></div>
       </section>
 
       {activeDataset && (
