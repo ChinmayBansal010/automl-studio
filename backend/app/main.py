@@ -513,42 +513,85 @@ def preprocess(dataset_id: str, req: Prep, user_id: str = Depends(current_user))
 
 @app.post("/api/datasets/{dataset_id}/feature-engineering")
 def feature_engineering(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(current_user)):
-    df=get_df(dataset_id,user_id).copy()
-    op=payload.get("operation")
-    cols=[c for c in payload.get("columns",[]) if c in df]
-    if op=="pca":
-        cols=[c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
-        if len(cols)<2: raise HTTPException(400,"PCA requires at least two selected numeric columns.")
-        x=df[cols].apply(pd.to_numeric,errors="coerce").replace([np.inf,-np.inf],np.nan)
-        x=x.fillna(x.median()).fillna(0)
-        n=min(int(payload.get("components",2)),len(cols),len(df)-1)
-        if n<1: raise HTTPException(400,"Not enough rows to calculate PCA.")
-        z=PCA(n_components=n,random_state=42).fit_transform(StandardScaler().fit_transform(x))
-        df=df.drop(columns=cols)
-        for i in range(n): df["PC"+str(i+1)]=z[:,i]
+    df = get_df(dataset_id, user_id).copy()
+    op = payload.get("operation")
+    requested = payload.get("columns") or []
+    if not isinstance(requested, list):
+        raise HTTPException(400, "Columns must be provided as a list.")
+    missing = [str(column) for column in requested if column not in df.columns]
+    if missing:
+        raise HTTPException(400, "Unknown selected columns: " + ", ".join(missing))
+    cols = list(dict.fromkeys(requested))
+    if op not in {"one_hot_encode", "standardize", "minmax", "log_transform", "polynomial", "pca"}:
+        raise HTTPException(400, "Unknown feature engineering operation.")
+
+    if op == "pca":
+        numeric = [column for column in cols if pd.api.types.is_numeric_dtype(df[column])]
+        if len(numeric) < 2:
+            raise HTTPException(400, "PCA requires at least two selected numeric columns.")
+        if len(df) < 2:
+            raise HTTPException(400, "PCA requires at least two rows.")
+        values = df[numeric].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
+        medians = values.median().fillna(0)
+        values = values.fillna(medians).fillna(0)
+        components = payload.get("components", 2)
+        try:
+            components = int(components)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "PCA components must be a whole number.")
+        if components < 1:
+            raise HTTPException(400, "PCA components must be at least 1.")
+        count = min(components, len(numeric), len(df) - 1)
+        transformed = PCA(n_components=count, random_state=42).fit_transform(StandardScaler().fit_transform(values))
+        df = df.drop(columns=numeric)
+        for index in range(count):
+            name = "PC" + str(index + 1)
+            while name in df.columns:
+                name = "_" + name
+            df[name] = transformed[:, index]
     else:
-        if not cols: raise HTTPException(400,"Select at least one column for feature engineering.")
-        if op=="one_hot_encode":
-            df=pd.get_dummies(df,columns=cols,dummy_na=bool(payload.get("dummy_na",False)),dtype=np.uint8)
-        elif op in ("standardize","minmax","log_transform","polynomial"):
-            numeric=[c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
-            if not numeric: raise HTTPException(400,"This transformation requires at least one selected numeric column.")
-            for c in numeric:
-                values=pd.to_numeric(df[c],errors="coerce")
-                if op=="standardize":
-                    std=values.std()
-                    df[c]=(values-values.mean())/(std if pd.notna(std) and std!=0 else 1)
-                elif op=="minmax":
-                    span=values.max()-values.min()
-                    df[c]=(values-values.min())/(span if pd.notna(span) and span!=0 else 1)
-                elif op=="log_transform": df[c]=np.log1p(values.clip(lower=0))
-                else: df[c+"__squared"]=values**2
-        else: raise HTTPException(400,"Unknown feature engineering operation.")
-    data_dir,_,_,_=user_workspace(user_id)
-    datasets[(user_id,dataset_id)]=df
-    df.to_csv(artifact_path(data_dir,dataset_id,".csv"),index=False)
+        if not cols:
+            raise HTTPException(400, "Select at least one column for feature engineering.")
+        if op == "one_hot_encode":
+            if len(cols) == len(df.columns):
+                raise HTTPException(400, "Select at least one column to keep unchanged.")
+            generated = pd.get_dummies(df[cols], columns=cols, dummy_na=bool(payload.get("dummy_na", False)), dtype=np.uint8)
+            untouched = df.drop(columns=cols)
+            collisions = sorted(set(generated.columns).intersection(untouched.columns))
+            if collisions:
+                raise HTTPException(400, "One-hot encoding would create duplicate column names: " + ", ".join(collisions))
+            df = pd.concat([untouched, generated], axis=1)
+        else:
+            numeric = [column for column in cols if pd.api.types.is_numeric_dtype(df[column])]
+            if not numeric:
+                raise HTTPException(400, "Select at least one numeric column for this transformation.")
+            for column in numeric:
+                values = pd.to_numeric(df[column], errors="coerce").replace([np.inf, -np.inf], np.nan)
+                if op == "standardize":
+                    mean = values.mean()
+                    deviation = values.std(ddof=0)
+                    df[column] = (values - mean) / (deviation if pd.notna(deviation) and deviation > 0 else 1)
+                elif op == "minmax":
+                    minimum = values.min()
+                    span = values.max() - minimum
+                    df[column] = (values - minimum) / (span if pd.notna(span) and span > 0 else 1)
+                elif op == "log_transform":
+                    df[column] = np.sign(values) * np.log1p(np.abs(values))
+                elif op == "polynomial":
+                    new_column = column + "__squared"
+                    suffix = 2
+                    while new_column in df.columns:
+                        new_column = column + "__squared_" + str(suffix)
+                        suffix += 1
+                    df[new_column] = np.square(values)
+
+    if df.empty or not len(df.columns):
+        raise HTTPException(400, "This operation would create an empty dataset. No changes were saved.")
+    data_dir, _, _, _ = user_workspace(user_id)
+    datasets[(user_id, dataset_id)] = df
+    df.to_csv(artifact_path(data_dir, dataset_id, ".csv"), index=False)
     save_dataset_version(user_id, dataset_id, df, dataset_filename(data_dir, dataset_id).removesuffix("-processed.csv") + ".csv", "Feature engineering: " + str(op))
-    return {"dataset_id":dataset_id,"operation":op,"saved_locally":True,**profile(df)}
+    return {"dataset_id": dataset_id, "operation": op, "saved_locally": True, **profile(df)}
 
 @app.post("/api/datasets/{dataset_id}/chart")
 def chart(dataset_id: str, payload: dict[str,Any], user_id: str = Depends(current_user)):
@@ -885,7 +928,8 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
     if usable_target.nunique(dropna=True) < 2 or len(usable_indices) < 10:
         raise HTTPException(400, "Need at least 10 usable rows and at least 2 target values.")
 
-    max_training_rows = 1500
+    headroom_before_sampling = available_memory_mb()
+    max_training_rows = 750 if headroom_before_sampling is not None and headroom_before_sampling < 160 else 1500
     sampled_for_memory = len(usable_indices) > max_training_rows
     if sampled_for_memory:
         stratify_sample = None
@@ -980,9 +1024,11 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
             avg = elapsed / model_index if model_index else None
             eta = int(avg * (total_models - model_index)) if avg is not None else None
             update_training_record(user_id, assigned_model_id, {"current_model": name, "completed_models": model_index, "total_models": total_models, "progress_pct": round(model_index / total_models * 100), "elapsed_seconds": int(elapsed), "eta_seconds": eta})
-        headroom=available_memory_mb()
-        if headroom is not None and headroom < 160:
-            raise HTTPException(503, "Training paused before starting " + name + " because the server has less than 160 MB free memory. Select fewer models, reduce input features, or use a smaller dataset, then retry.")
+        headroom = available_memory_mb()
+        if headroom is not None and headroom < 160 and name in {"Random Forest", "Extra Trees"}:
+            estimator.set_params(n_estimators=min(getattr(estimator, "n_estimators", 10), 10), max_depth=min(getattr(estimator, "max_depth", 8) or 8, 8), n_jobs=1)
+            if hasattr(estimator, "max_samples"):
+                estimator.set_params(max_samples=0.7)
         if cancel_event and cancel_event.is_set():
             raise HTTPException(409, "Training was cancelled.")
         pipeline = None
@@ -1081,7 +1127,9 @@ def run_training(req: Train, user_id: str, assigned_model_id: str | None = None,
         "Preprocessing was fitted on the training split."
     ]
     if sampled_for_memory:
-        warning_messages.append("The dataset exceeded 1,500 usable rows. A reproducible sample of 1,500 rows was used to stay within the free server memory limit.")
+        warning_messages.append(f"The dataset exceeded {max_training_rows:,} usable rows. A reproducible sample of {max_training_rows:,} rows was used to control memory use.")
+    if headroom_before_sampling is not None and headroom_before_sampling < 160:
+        warning_messages.append("Low available memory was detected. Training continued with a reduced data sample and a smaller Random Forest / Extra Trees configuration instead of being blocked.")
 
     response = {
         "model_id": model_id, "task": req.task, "target": req.target, "mode": req.mode,
