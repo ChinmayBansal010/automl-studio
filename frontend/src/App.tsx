@@ -276,7 +276,7 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
 {card('Chart dashboard',<>
 <p>Each generated graph is added to this dashboard. Choose a layout to arrange multiple graphs together.</p>
 <div className="formgrid">
-{field('Graph type',<select value={kind} onChange={e=>SK(e.target.value)}>{['bar','line','area','scatter','pie','count','histogram','heatmap','density','box','radar','ecdf','qq','step','pareto'].map(v=><option key={v}>{v.replace(/\b\w/g, (letter:string) => letter.toUpperCase())}</option>)}</select>)}
+{field('Graph type',<select value={kind} onChange={e=>SK(e.target.value)}>{['bar','line','area','scatter','pie','count','histogram','heatmap','density','box','radar','ecdf','qq','step','pareto'].map(v=><option key={v} value={v}>{v.replace(/\b\w/g, (letter:string) => letter.toUpperCase())}</option>)}</select>)}
 {kind!=='heatmap'&&field(kind==='histogram'?'Numeric column':kind==='scatter'?'Numeric X axis':'X axis / category',<select value={x} onChange={e=>SX(e.target.value)}>{chartXColumns.map((col:any)=><option key={col.column} value={col.column}>{col.column}</option>)}</select>)}
 {['line','area','scatter','bar','box','radar'].includes(kind)&&field('Numeric Y axis / value',<select value={y} onChange={e=>SY(e.target.value)}>{chartYColumns.map((col:any)=><option key={col.column} value={col.column}>{col.column}</option>)}</select>)}
 {['bar','line','area','step','radar'].includes(kind)&&field('Aggregation',<select value={agg} onChange={e=>SA(e.target.value)}>{['mean','sum','median','count','min','max'].map(v=><option key={v}>{v}</option>)}</select>)}
