@@ -63,8 +63,19 @@ class TrainingTests(unittest.TestCase):
             "target": ["class-a" if i % 2 == 0 else "class-b" for i in range(5200)],
         })
         result = self.run_training_case(frame, "classification", "target")
-        self.assertEqual(result["train_rows"] + result["test_rows"], 5000)
-        self.assertTrue(any("5,000 usable rows" in warning for warning in result["warnings"]))
+        self.assertEqual(result["train_rows"] + result["test_rows"], 1500)
+        self.assertTrue(any("1,500 usable rows" in warning for warning in result["warnings"]))
+
+    def test_random_forest_trains_when_memory_probe_reports_less_than_160_mb(self):
+        x = np.arange(80, dtype=float)
+        frame = pd.DataFrame({
+            "feature": x,
+            "target": ["class-a" if i % 2 == 0 else "class-b" for i in range(80)],
+        })
+        with patch.object(main, "available_memory_mb", return_value=50.0):
+            result = self.run_training_case(frame, "classification", "target", "Random Forest")
+        self.assertEqual(result["best_model"], "Random Forest")
+        self.assertTrue(any("Low available memory was detected" in warning for warning in result["warnings"]))
 
     def test_candidate_pools_are_task_specific(self):
         classification = main.candidates("classification")
