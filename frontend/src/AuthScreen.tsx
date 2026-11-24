@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowRight, Check, LockKeyhole, Mail, ShieldCheck, Sparkles } from 'lucide-react'
 import { authClient } from './auth'
 
@@ -21,6 +21,7 @@ export function AuthScreen({ onAuthenticated, initialMode = 'login', onModeChang
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
   const [isSignUp, setIsSignUp] = useState(initialMode === 'signup')
+  useEffect(() => setIsSignUp(initialMode === 'signup'), [initialMode])
   const [needsVerification, setNeedsVerification] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
