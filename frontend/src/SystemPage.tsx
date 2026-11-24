@@ -7,7 +7,7 @@ const pages: Record<number, { eyebrow: string; title: string; description: strin
   404: { eyebrow: 'PAGE NOT FOUND', title: 'This page is not here.', description: 'The address may be incorrect, or the page may have moved.', detail: 'Check the URL or return to the workspace and continue from the navigation.', action: 'Go to home', icon: CircleHelp },
   405: { eyebrow: 'METHOD NOT ALLOWED', title: 'That action is not supported here.', description: 'The request used a method this resource does not accept.', detail: 'Return to the application and use the available controls for this operation.', action: 'Return to workspace', icon: ShieldAlert },
   409: { eyebrow: 'CONFLICT', title: 'The resource has changed.', description: 'The action conflicts with the current state of this resource.', detail: 'Refresh the page, review the latest dataset or experiment state, then retry if the action is still needed.', action: 'Refresh page', icon: RefreshCw },
-  413: { eyebrow: 'FILE TOO LARGE', title: 'This file is larger than the upload limit.', description: 'The server rejected the request because its payload is too large.', detail: 'Choose a smaller CSV file or reduce the amount of data before uploading.', action: 'Choose another file', icon: CircleHelp },
+  413: { eyebrow: 'FILE TOO LARGE', title: 'This file is larger than the upload limit.', description: 'The server rejected the request because its payload is too large.', detail: 'Choose a smaller CSV file or reduce the amount of data before uploading.', action: 'Return to workspace', icon: CircleHelp },
   422: { eyebrow: 'INVALID DATA', title: 'The submitted data could not be processed.', description: 'The request was understood, but one or more values failed validation.', detail: 'Review the selected columns, target and input values before trying again.', action: 'Return to workspace', icon: CircleHelp },
   408: { eyebrow: 'REQUEST TIMEOUT', title: 'The request took too long.', description: 'The service did not finish responding in time.', detail: 'Check your connection and retry. Large datasets and model-training jobs can take longer than ordinary page requests.', action: 'Try again', icon: RefreshCw },
   410: { eyebrow: 'RESOURCE REMOVED', title: 'This resource is no longer available.', description: 'The requested item has been removed or is no longer retained.', detail: 'Return to your workspace to select an available dataset or experiment.', action: 'Go to home', icon: CircleHelp },
@@ -23,7 +23,7 @@ export function SystemPage({ code, onHome, onLogin }: { code: number; onHome: ()
   const page = pages[code] || pages[404]
   const Icon = page.icon
   const needsLogin = code === 401
-  const canRetry = [408, 429, 502, 503, 504].includes(code)
+  const canRetry = [408, 409, 429, 502, 503, 504].includes(code)
   return (
     <main className="system-page">
       <header className="system-topbar"><a href="/" className="system-brand"><span className="system-brand-mark">A</span><strong>AutoML Studio</strong></a><span>APPLICATION STATUS</span></header>
