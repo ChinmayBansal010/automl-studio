@@ -16,6 +16,7 @@ async function authRequest(path: string, body: Record<string, string>) {
 }
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => void }) {
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
@@ -64,7 +65,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
       }
 
       const result = isSignUp
-        ? await authClient.signUp.email({ name: email.split('@')[0] || 'User', email, password })
+        ? await authClient.signUp.email({ name: name.trim() || email.split('@')[0] || 'User', email, password })
         : await authClient.signIn.email({ email, password })
       if (result.error) throw new Error(result.error.message)
 
@@ -114,13 +115,13 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
       <div className="auth-layout">
         <section className="auth-showcase">
           <div className="auth-eyebrow"><span /> YOUR DATA. YOUR MODELS. YOUR WORKSPACE.</div>
-          <h1>Make better models.<br /><span>With less busywork.</span></h1>
-          <p className="auth-showcase-copy">A focused workspace to explore datasets, prepare features, compare machine-learning models, and turn experiments into predictions.</p>
+          <h1>Machine learning,<br /><span>from data to decisions.</span></h1>
+          <p className="auth-showcase-copy">Inspect data, prepare features, compare models and generate predictions from one organized workspace.</p>
 
           <div className="auth-feature-list">
-            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Explore with clarity</strong><small>Understand data quality and distributions.</small></span></div>
-            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Build with confidence</strong><small>Preprocess data and compare algorithms.</small></span></div>
-            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Keep work organized</strong><small>Save datasets, models, and predictions.</small></span></div>
+            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Understand the data</strong><small>Review data quality, types and distributions.</small></span></div>
+            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Prepare and train</strong><small>Transform features and compare algorithms.</small></span></div>
+            <div><span className="auth-feature-icon"><Check size={15} /></span><span><strong>Review results</strong><small>Keep experiments, models and predictions together.</small></span></div>
           </div>
 
           <div className="auth-showcase-note"><span className="auth-note-dot" /> A private workspace for your machine-learning workflow</div>
@@ -151,6 +152,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
 
             <form onSubmit={submit}>
               {!needsVerification && <>
+                {isSignUp && <label className="auth-field"><span>Full name</span><span className="auth-input"><input type="text" autoComplete="name" required value={name} onChange={event => setName(event.target.value)} placeholder="Your name" /></span></label>}
                 <label className="auth-field"><span>Email address</span><span className="auth-input"><Mail size={17} /><input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" /></span></label>
                 <label className="auth-field"><span>Password</span><span className="auth-input"><LockKeyhole size={17} /><input type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={8} required value={password} onChange={event => setPassword(event.target.value)} placeholder="At least 8 characters" /></span></label>
               </>}
