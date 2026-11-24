@@ -391,7 +391,7 @@ function App(){
  }
  if(cleanPath==='/login'||cleanPath==='/signup'){
   if(user)return null
-  return <AuthScreen initialMode={cleanPath==='/signup'?'signup':'login'} onModeChange={mode=>navigate(mode==='signup'?'/signup':'/login',true)} onAuthenticated={account=>{
+  return <AuthScreen initialMode={cleanPath==='/signup'?'signup':'login'} onModeChange={mode=>navigate((mode==='signup'?'/signup':'/login')+window.location.search,true)} onAuthenticated={account=>{
    setUser(account)
    const next=new URLSearchParams(window.location.search).get('next')
    navigate(next&&next.startsWith('/app/')?next:'/app/home',true)
