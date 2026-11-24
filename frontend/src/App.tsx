@@ -379,10 +379,12 @@ function App(){
  },[ready,user,path])
  async function signOut(){try{await authClient.signOut()}catch{}setUser(null);navigate('/login',true)}
  if(!ready)return <main className="route-loading"><div className="route-loading-mark">A</div><p>Restoring your workspace session</p><span>Checking account access…</span></main>
- const cleanPath=path.replace(/\\/+$/,'')||'/'
- const statusMatch=cleanPath.match(/^\\/(?:status\\/)?(400|401|403|404|408|410|429|500|502|503|504)$/)
- if(statusMatch)return <SystemPage code={Number(statusMatch[1])} onHome={()=>navigate(user?'/app/home':'/')} onLogin={()=>navigate('/login')}/>
- if(cleanPath==='/302'||cleanPath==='/signin'||cleanPath==='/register'){navigate(cleanPath==='/register'?'/signup':'/login',true);return null}
+ const cleanPath=path.endsWith('/')&&path!=='/'?path.slice(0,-1):path
+ const statusSegment=cleanPath.split('/').filter(Boolean).pop()||''
+ const statusCode=Number(statusSegment)
+ const isStatusPage=['400','401','403','404','408','410','429','500','502','503','504'].includes(statusSegment)&&(cleanPath==='/'+statusSegment||cleanPath==='/status/'+statusSegment)
+ if(isStatusPage)return <SystemPage code={statusCode} onHome={()=>navigate(user?'/app/home':'/')} onLogin={()=>navigate('/login')}/>
+ if(cleanPath==='/signin'||cleanPath==='/register'){navigate(cleanPath==='/register'?'/signup':'/login',true);return null}
  if(cleanPath==='/privacy'||cleanPath==='/terms'||cleanPath==='/about'||cleanPath==='/contact'||cleanPath==='/'){
   const publicRoute=cleanPath==='/'?'home':cleanPath.slice(1) as 'about'|'privacy'|'terms'|'contact'
   return <PublicPage page={publicRoute} onLogin={()=>navigate('/login')} onSignup={()=>navigate('/signup')}/>
