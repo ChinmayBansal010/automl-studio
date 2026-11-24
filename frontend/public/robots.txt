@@ -4,4 +4,4 @@ Disallow: /app/
 Disallow: /auth/
 Disallow: /login
 Disallow: /signup
-Sitemap: https://automl-studio-git-main-chinmay-bansals-projects.vercel.app/sitemap.xml
+Sitemap: https://automl-studio-blush.vercel.app/sitemap.xml
