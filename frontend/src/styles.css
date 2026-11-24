@@ -463,3 +463,13 @@ footer{padding:24px 4px 8px;color:#8995a6;font-size:10px;text-align:center}
 @media(prefers-reduced-motion:reduce){
   *,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
 }
+
+.chart-card-title{display:grid;gap:3px;min-width:0}
+.chart-card-title>span{color:#8794a3;font-size:8px;font-weight:750;letter-spacing:1px}
+.chart-card-title h2{margin:0}
+.chart-remove-button{width:31px;min-width:31px;padding:6px!important}
+.home-workflow-card:focus-visible,.home-row-action:focus-visible,.home-view-all:focus-visible{outline:3px solid rgba(49,95,186,.2);outline-offset:2px}
+@media(max-width:760px){
+ .chart-card-title>span{font-size:7px}
+ .chart-remove-button{width:29px;min-width:29px}
+}
