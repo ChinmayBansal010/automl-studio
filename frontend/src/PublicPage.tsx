@@ -21,6 +21,9 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
     let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
     if (!canonical) { canonical = document.createElement('link'); canonical.rel = 'canonical'; document.head.appendChild(canonical) }
     canonical.href = window.location.origin + (page === 'home' ? '/' : '/' + page)
+    let schema = document.getElementById('automl-software-schema') as HTMLScriptElement | null
+    if (!schema) { schema = document.createElement('script'); schema.id = 'automl-software-schema'; schema.type = 'application/ld+json'; document.head.appendChild(schema) }
+    schema.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'AutoML Studio', applicationCategory: 'DeveloperApplication', operatingSystem: 'Web', description: descriptions[page], url: window.location.origin, author: { '@type': 'Person', name: 'Chinmay Bansal' } })
   }, [page])
 
   const nav = <nav className="public-nav" aria-label="Main navigation"><a className="public-brand" href="/"><span>A</span>AutoML Studio</a><div><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></div><button className="secondary" type="button" onClick={onLogin}>Sign in</button></nav>
