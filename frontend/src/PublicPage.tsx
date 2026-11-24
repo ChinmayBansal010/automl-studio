@@ -21,6 +21,15 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
     let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
     if (!canonical) { canonical = document.createElement('link'); canonical.rel = 'canonical'; document.head.appendChild(canonical) }
     canonical.href = window.location.origin + (page === 'home' ? '/' : '/' + page)
+    const setMeta = (selector: string, attribute: string, value: string) => {
+      let element = document.querySelector(selector) as HTMLMetaElement | null
+      if (!element) { element = document.createElement('meta'); const [key, name] = selector.match(/\[(name|property)="([^"]+)"\]/)?.slice(1) || []; if (key && name) element.setAttribute(key, name); document.head.appendChild(element) }
+      element.setAttribute(attribute, value)
+    }
+    setMeta('meta[property="og:title"]', 'content', titles[page])
+    setMeta('meta[property="og:description"]', 'content', descriptions[page])
+    setMeta('meta[property="og:url"]', 'content', canonical.href)
+    setMeta('meta[name="twitter:card"]', 'content', 'summary')
     let schema = document.getElementById('automl-software-schema') as HTMLScriptElement | null
     if (!schema) { schema = document.createElement('script'); schema.id = 'automl-software-schema'; schema.type = 'application/ld+json'; document.head.appendChild(schema) }
     schema.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'AutoML Studio', applicationCategory: 'DeveloperApplication', operatingSystem: 'Web', description: descriptions[page], url: window.location.origin, author: { '@type': 'Person', name: 'Chinmay Bansal' } })
