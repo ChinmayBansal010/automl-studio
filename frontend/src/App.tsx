@@ -383,7 +383,7 @@ function App(){
  const statusSegment=cleanPath.split('/').filter(Boolean).pop()||''
  const statusCode=Number(statusSegment)
  const isStatusPage=['400','401','403','404','405','408','409','410','413','422','429','500','501','502','503','504'].includes(statusSegment)&&(cleanPath==='/'+statusSegment||cleanPath==='/status/'+statusSegment)
- if(isStatusPage)return <SystemPage code={statusCode} onHome={()=>navigate(user?'/app/home':'/')} onLogin={()=>navigate('/login')}/>
+ if(isStatusPage)return <SystemPage code={statusCode} onHome={()=>navigate(user?'/app/home':'/')} onLogin={()=>{void authClient.signOut();setUser(null);navigate('/login')}}/>
  
  if(cleanPath==='/privacy'||cleanPath==='/terms'||cleanPath==='/about'||cleanPath==='/contact'||cleanPath==='/'){
   const publicRoute=cleanPath==='/'?'home':cleanPath.slice(1) as 'about'|'privacy'|'terms'|'contact'
