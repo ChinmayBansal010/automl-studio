@@ -1,8 +1,10 @@
 {
+  "redirects": [
+    { "source": "/signin", "destination": "/login", "statusCode": 302 },
+    { "source": "/register", "destination": "/signup", "statusCode": 302 }
+  ],
   "rewrites": [
-    {
-      "source": "/auth/:path*",
-      "destination": "https://automl-studio-api-ap6u.onrender.com/auth/:path*"
-    }
+    { "source": "/auth/:path*", "destination": "https://automl-studio-api-ap6u.onrender.com/auth/:path*" },
+    { "source": "/((?!auth/).*)", "destination": "/index.html" }
   ]
 }
