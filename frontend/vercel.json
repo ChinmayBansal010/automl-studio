@@ -5,6 +5,6 @@
   ],
   "rewrites": [
     { "source": "/auth/:path*", "destination": "https://automl-studio-api-ap6u.onrender.com/auth/:path*" },
-    { "source": "/((?!auth/).*)", "destination": "/index.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
