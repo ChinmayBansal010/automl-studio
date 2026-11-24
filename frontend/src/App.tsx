@@ -60,7 +60,14 @@ async function api(url: string, init?: RequestInit): Promise<any> {
   const token = await getValidToken()
   const headers = new Headers(init?.headers)
   headers.set('Authorization', 'Bearer ' + token)
-  let r = await fetchWithRetry(API + url, { ...init, headers })
+  let r: Response
+  try {
+    r = await fetchWithRetry(API + url, { ...init, headers })
+  } catch (error) {
+    window.dispatchEvent(new CustomEvent('automl:service-status', { detail: { code: 503 } }))
+    throw error
+  }
+  if ([502, 503, 504].includes(r.status)) window.dispatchEvent(new CustomEvent('automl:service-status', { detail: { code: r.status } }))
   // If we get a 401, try refreshing the token once and retry the request
   if (r.status === 401) {
     let freshToken: string
@@ -370,6 +377,17 @@ function App(){
   window.scrollTo({top:0,behavior:'auto'})
  }
  useEffect(()=>{const pop=()=>setPath(window.location.pathname);window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop)},[])
+ useEffect(()=>{
+  const serviceStatus=(event:Event)=>{const code=(event as CustomEvent<{code:number}>).detail?.code;if([502,503,504].includes(code)){window.history.pushState({},'','/status/'+code);setPath('/status/'+code)}}
+  window.addEventListener('automl:service-status',serviceStatus)
+  return()=>window.removeEventListener('automl:service-status',serviceStatus)
+ },[])
+ useEffect(()=>{
+  const privateRoute=path.startsWith('/app/')||path==='/app'||path==='/login'||path==='/signup'||path.startsWith('/status/')
+  let robots=document.querySelector('meta[name="robots"]') as HTMLMetaElement|null
+  if(!robots){robots=document.createElement('meta');robots.name='robots';document.head.appendChild(robots)}
+  robots.content=privateRoute?'noindex, nofollow':'index, follow'
+ },[path])
  useEffect(()=>{(async()=>{try{let result=await authClient.getSession();if(!result.error&&result.data?.user&&result.data.session?.token){setUser(result.data.user);return}result=await authClient.getSession({fetchOptions:{headers:{'X-Force-Fetch':'true'}}});if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token)setUser(result.data.user)}catch(error){console.error('Could not restore the sign-in session:',error)}finally{setReady(true)}})()},[])
  useEffect(()=>{
   if(!ready)return
