@@ -538,3 +538,23 @@ footer{padding:24px 4px 8px;color:#8995a6;font-size:10px;text-align:center}
 .route-loading{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f7f8fa;color:#617087}.route-loading-mark{display:grid;place-items:center;width:42px;height:42px;border-radius:9px;background:#315fba;color:#fff;font-family:Manrope,sans-serif;font-weight:800}.route-loading p{margin:18px 0 4px;color:#29384c;font-size:14px;font-weight:650}.route-loading span{color:#8994a3;font-size:11px}
 @media(max-width:850px){.public-hero{gap:35px;padding-top:58px}.public-workflow{gap:35px;padding-top:55px;padding-bottom:55px}.system-content{grid-template-columns:190px 1fr;gap:30px}}
 @media(max-width:640px){.public-nav{width:calc(100% - 32px);min-height:65px;gap:10px}.public-nav>div{display:none}.public-brand{font-size:13px}.public-hero{width:calc(100% - 36px);min-height:auto;padding:55px 0 52px;grid-template-columns:1fr;gap:35px}.public-hero h1{font-size:39px;letter-spacing:-1.7px}.public-hero-copy>p{font-size:13px}.public-product-sheet{justify-self:stretch;max-width:none;transform:none;padding:18px}.public-workflow{grid-template-columns:1fr;gap:28px;padding:48px 18px}.public-workflow h2,.public-bottom-cta h2{font-size:23px}.public-feature-list{gap:25px 18px}.public-feature-list article{padding-left:29px}.public-bottom-cta{width:calc(100% - 36px);padding:40px 0;align-items:flex-start;flex-direction:column}.public-document{width:calc(100% - 36px);padding:52px 0 65px}.public-footer{width:calc(100% - 36px);padding:18px 0;align-items:flex-start;flex-direction:column;gap:12px}.public-footer>div{gap:15px}.system-page{padding:0 18px}.system-topbar{height:64px}.system-content{grid-template-columns:1fr;gap:14px;padding:55px 0}.system-code{justify-content:flex-start;font-size:76px;letter-spacing:-5px}.system-copy h1{font-size:28px}.system-description{font-size:13px}.system-footer{min-height:58px}.system-reference{align-items:flex-start;line-height:1.6}}
+
+
+/* Consistent presentation for technical labels and selection controls. */
+.field > span,
+select,
+option,
+.tablewrap th,
+.metric > small {
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+}
+
+select,
+option {
+  font-variant-numeric: tabular-nums;
+}
+
+.tablewrap th {
+  white-space: nowrap;
+}
