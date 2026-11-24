@@ -113,9 +113,22 @@ def save_dataset_version(user_id: str, dataset_id: str, df: pd.DataFrame, filena
     data_dir, _, _, _ = user_workspace(user_id)
     version_dir = data_dir / f"{dataset_id}.versions"
     version_dir.mkdir(parents=True, exist_ok=True)
+    csv_content = df.to_csv(index=False).encode("utf-8")
+    content_hash = hashlib.sha256(csv_content).hexdigest()
+    versions = sorted(version_dir.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if versions:
+        try:
+            latest = json.loads(versions[0].read_text(encoding="utf-8"))
+            latest_csv = artifact_path(version_dir, latest["version_id"], ".csv")
+            if latest_csv.is_file():
+                latest_hash = latest.get("content_sha256") or hashlib.sha256(latest_csv.read_bytes()).hexdigest()
+                if latest_hash == content_hash:
+                    return latest
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
     version_id = str(uuid.uuid4())
     csv_path = artifact_path(version_dir, version_id, ".csv")
-    df.to_csv(csv_path, index=False)
+    csv_path.write_bytes(csv_content)
     metadata = {
         "version_id": version_id,
         "dataset_id": dataset_id,
@@ -125,9 +138,10 @@ def save_dataset_version(user_id: str, dataset_id: str, df: pd.DataFrame, filena
         "rows": int(len(df)),
         "columns": int(len(df.columns)),
         "size_bytes": csv_path.stat().st_size,
+        "content_sha256": content_hash,
     }
     artifact_path(version_dir, version_id, ".json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    versions = sorted(version_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    versions = sorted(version_dir.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     for old in versions[25:]:
         try:
             old_meta = json.loads(old.read_text(encoding="utf-8"))
