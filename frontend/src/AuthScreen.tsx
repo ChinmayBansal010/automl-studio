@@ -15,12 +15,12 @@ async function authRequest(path: string, body: Record<string, string>) {
   return result
 }
 
-export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => void }) {
+export function AuthScreen({ onAuthenticated, initialMode = 'login', onModeChange }: { onAuthenticated: (user: AuthUser) => void; initialMode?: 'login' | 'signup'; onModeChange?: (mode: 'login' | 'signup') => void }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [isSignUp, setIsSignUp] = useState(initialMode === 'signup')
   const [needsVerification, setNeedsVerification] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -98,6 +98,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
 
   function switchMode(signUp: boolean) {
     setIsSignUp(signUp)
+    onModeChange?.(signUp ? 'signup' : 'login')
     setError('')
     setNotice('')
   }
