@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, BarChart3, BrainCircuit, ChevronLeft, ChevronRight, Database, Download, FilePlus2, FlaskConical, Gauge, History, House, LogOut, RefreshCw, RotateCcw, Sparkles, Target, UploadCloud } from 'lucide-react'
 import { CartesianGrid, Legend, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from 'recharts'
 import { AuthScreen } from './AuthScreen'
+import { PublicPage } from './PublicPage'
+import { SystemPage } from './SystemPage'
 import { ChartCard } from './components/ChartCard'
 import { WorkspaceHeader } from './components/WorkspaceHeader'
 import { WorkspaceSidebar } from './components/WorkspaceSidebar'
@@ -125,14 +127,16 @@ function setActiveDatasetRef(userId:string,datasetId:string,filename:string):voi
 function getActiveDatasetRef(userId:string):{datasetId:string;filename:string}|null{try{const value=localStorage.getItem('automl-active-dataset:'+userId);return value?JSON.parse(value):null}catch{return null}}
 const fmt=(v:any)=>v===null||v===undefined?'—':typeof v==='number'?Number(v.toFixed?.(4)??v).toLocaleString():String(v)
 const durationLabel=(seconds:any)=>seconds===null||seconds===undefined?'Calculating…':seconds<60?`${seconds}s remaining`:`${Math.floor(seconds/60)}m ${seconds%60}s remaining`
-function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=>Promise<void>}){
+function Workspace({user,onSignOut,initialTab,onNavigate}:{user:{id:string;email:string};onSignOut:()=>Promise<void>;initialTab:string;onNavigate:(tab:string)=>void}){
  const uploadInput=useRef<HTMLInputElement>(null)
  const dashboardReady=useRef(false)
  const evaluationRef=useRef<HTMLDivElement>(null)
  const [initialLoading,setInitialLoading]=useState(true)
- const [tab,S]=useState('home'),[p,SP]=useState<any>(null),[eda,SE]=useState<any>(null),[err,ER]=useState(''),[busy,SB]=useState(false),[ws,SW]=useState<any>({saved_datasets:[],saved_models:0}),[jobs,SJ]=useState<any[]>([])
+ const [tab,setTab]=useState(initialTab),[p,SP]=useState<any>(null),[eda,SE]=useState<any>(null),[err,ER]=useState(''),[busy,SB]=useState(false),[ws,SW]=useState<any>({saved_datasets:[],saved_models:0}),[jobs,SJ]=useState<any[]>([])
  const [op,SO]=useState('fill_missing'),[strategy,SS]=useState('median'),[cols,SC]=useState<string[]>([]),[featureCols,SFeatureCols]=useState<string[]>([]),[threshold,ST]=useState(.5),[newName,SN]=useState(''),[value,SV]=useState(''),[components,SCM]=useState(2),[sampleSize,SSample]=useState(1000)
  const [kind,SK]=useState('bar'),[x,SX]=useState(''),[y,SY]=useState(''),[agg,SA]=useState('mean'),[rows,SR]=useState(20),[grid,SG]=useState(1),[chart,SCH]=useState<any>(null)
+ const S=(nextTab:string)=>{setTab(nextTab);onNavigate(nextTab)}
+ useEffect(()=>{setTab(initialTab)},[initialTab])
  const [target,STG]=useState(''),[task,STK]=useState('classification'),[mode,SM]=useState('auto'),[modelName,SNModel]=useState('Random Forest'),[selectedModels,SSelectedModels]=useState<string[]>([]),[split,SSplit]=useState(.2),[selection,SSEL]=useState('none'),[k,SKN]=useState(10),[pca,SPCA]=useState(false),[pcaK,SPK]=useState(3),[scale,SSC]=useState(true),[drop,SD]=useState(false),[features,SF]=useState<string[]>([]),[model,SModel]=useState<any>(null),[prediction,SPred]=useState<any>(null),[trainingQueue,STQ]=useState<any[]>([]),[datasetVersions,SVersions]=useState<any[]>([])
  const models=task==='classification'?['Logistic Regression','Decision Tree','Random Forest','Extra Trees','Gradient Boosting','Histogram Gradient Boosting','AdaBoost','K-Nearest Neighbors','Support Vector Machine','Naive Bayes','Neural Network (MLP)']:['Ridge Regression','Decision Tree','Random Forest','Extra Trees','Gradient Boosting','Histogram Gradient Boosting','AdaBoost','K-Nearest Neighbors','Support Vector Regression','Neural Network (MLP)']
  const targetColumns=(p?.columns_info||[]).filter((c:any)=>c.unique>=2&&(task==='regression'?c.kind==='numeric':c.unique<=100))
@@ -358,9 +362,45 @@ function Workspace({user,onSignOut}:{user:{id:string;email:string};onSignOut:()=
 function App(){
  const [user,setUser]=useState<{id:string;email:string}|null>(null)
  const [ready,setReady]=useState(false)
- useEffect(()=>{(async()=>{try{let result=await authClient.getSession();if(!result.error&&result.data?.user&&result.data.session?.token){setUser(result.data.user);return}result=await authClient.getSession({fetchOptions:{headers:{'X-Force-Fetch':'true'}}});if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token){setUser(result.data.user);return}/* no active session, stay on login */}catch(error){console.error('Could not restore the sign-in session:',error)}finally{setReady(true)}})()},[])
- async function signOut(){try{await authClient.signOut()}catch{}setUser(null)}
- if(!ready)return <main className="auth-page"><section className="auth-card" style={{textAlign:'center'}}><p>Checking your session…</p></section></main>
- return user?<Workspace key={user.id} user={user} onSignOut={signOut}/>:<AuthScreen onAuthenticated={setUser}/>
+ const [path,setPath]=useState(window.location.pathname)
+ function navigate(to:string,replace=false){
+  if(replace)window.history.replaceState({},'',to)
+  else if(window.location.pathname+window.location.search!==to)window.history.pushState({},'',to)
+  setPath(window.location.pathname)
+  window.scrollTo({top:0,behavior:'auto'})
+ }
+ useEffect(()=>{const pop=()=>setPath(window.location.pathname);window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop)},[])
+ useEffect(()=>{(async()=>{try{let result=await authClient.getSession();if(!result.error&&result.data?.user&&result.data.session?.token){setUser(result.data.user);return}result=await authClient.getSession({fetchOptions:{headers:{'X-Force-Fetch':'true'}}});if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token)setUser(result.data.user)}catch(error){console.error('Could not restore the sign-in session:',error)}finally{setReady(true)}})()},[])
+ useEffect(()=>{
+  if(!ready)return
+  if(user&&['/','/login','/signup'].includes(path))navigate('/app/home',true)
+  else if(user&&path==='/app')navigate('/app/home',true)
+  else if(!user&&path.startsWith('/app/'))navigate('/login?next='+encodeURIComponent(path),true)
+ },[ready,user,path])
+ async function signOut(){try{await authClient.signOut()}catch{}setUser(null);navigate('/login',true)}
+ if(!ready)return <main className="route-loading"><div className="route-loading-mark">A</div><p>Restoring your workspace session</p><span>Checking account access…</span></main>
+ const cleanPath=path.replace(/\\/+$/,'')||'/'
+ const statusMatch=cleanPath.match(/^\\/(?:status\\/)?(400|401|403|404|408|410|429|500|502|503|504)$/)
+ if(statusMatch)return <SystemPage code={Number(statusMatch[1])} onHome={()=>navigate(user?'/app/home':'/')} onLogin={()=>navigate('/login')}/>
+ if(cleanPath==='/302'||cleanPath==='/signin'||cleanPath==='/register'){navigate(cleanPath==='/register'?'/signup':'/login',true);return null}
+ if(cleanPath==='/privacy'||cleanPath==='/terms'||cleanPath==='/about'||cleanPath==='/contact'||cleanPath==='/'){
+  const publicRoute=cleanPath==='/'?'home':cleanPath.slice(1) as 'about'|'privacy'|'terms'|'contact'
+  return <PublicPage page={publicRoute} onLogin={()=>navigate('/login')} onSignup={()=>navigate('/signup')}/>
+ }
+ if(cleanPath==='/login'||cleanPath==='/signup'){
+  if(user)return null
+  return <AuthScreen initialMode={cleanPath==='/signup'?'signup':'login'} onModeChange={mode=>navigate(mode==='signup'?'/signup':'/login',true)} onAuthenticated={account=>{
+   setUser(account)
+   const next=new URLSearchParams(window.location.search).get('next')
+   navigate(next&&next.startsWith('/app/')?next:'/app/home',true)
+  }}/>
+ }
+ if(user&&cleanPath.startsWith('/app/')){
+  const tab=cleanPath.slice('/app/'.length).split('/')[0]
+  const validTabs=['home','overview','prepare','charts','train','evaluation','predict','models','experiments']
+  if(validTabs.includes(tab))return <Workspace key={user.id} user={user} onSignOut={signOut} initialTab={tab} onNavigate={next=>navigate('/app/'+next)}/>
+ }
+ if(cleanPath.startsWith('/app/'))return <SystemPage code={404} onHome={()=>navigate(user?'/app/home':'/')} onLogin={()=>navigate('/login')}/>
+ return <SystemPage code={404} onHome={()=>navigate(user?'/app/home':'/')} onLogin={()=>navigate('/login')}/>
 }
 export default App
