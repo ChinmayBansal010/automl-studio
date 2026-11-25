@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { AutoMLMark } from './components/AutoMLMark'
 import { Activity, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Database, FileSpreadsheet, FlaskConical, Github, Gauge, RefreshCw, ShieldCheck, Target } from 'lucide-react'
 
 type Props = { page: 'home' | 'about' | 'privacy' | 'terms' | 'contact'; onLogin: () => void; onSignup: () => void }
@@ -35,7 +36,7 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
     schema.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'AutoML Studio', applicationCategory: 'DeveloperApplication', operatingSystem: 'Web', description: descriptions[page], url: window.location.origin, author: { '@type': 'Person', name: 'Chinmay Bansal' } })
   }, [page])
 
-  const nav = <nav className="public-nav" aria-label="Main navigation"><a className="public-brand" href="/"><span>A</span>AutoML Studio</a><div><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></div><button className="secondary" type="button" onClick={onLogin}>Sign in</button></nav>
+  const nav = <nav className="public-nav" aria-label="Main navigation"><a className="public-brand" href="/"><span className="public-brand-mark"><AutoMLMark /></span>AutoML Studio</a><div><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></div><button className="secondary" type="button" onClick={onLogin}>Sign in</button></nav>
   if (page === 'home') return (
     <main className="public-page">
       {nav}
