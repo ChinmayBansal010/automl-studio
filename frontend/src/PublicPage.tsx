@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { Activity, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Database, FileSpreadsheet, FlaskConical, Github, Gauge, ShieldCheck, Target } from 'lucide-react'
+import { AutoMLMark } from './components/AutoMLMark'
+import { Activity, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Database, FileSpreadsheet, FlaskConical, Github, Gauge, RefreshCw, ShieldCheck, Target } from 'lucide-react'
 
 type Props = { page: 'home' | 'about' | 'privacy' | 'terms' | 'contact'; onLogin: () => void; onSignup: () => void }
 const updated = '24 November 2026'
@@ -35,7 +36,7 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
     schema.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'AutoML Studio', applicationCategory: 'DeveloperApplication', operatingSystem: 'Web', description: descriptions[page], url: window.location.origin, author: { '@type': 'Person', name: 'Chinmay Bansal' } })
   }, [page])
 
-  const nav = <nav className="public-nav" aria-label="Main navigation"><a className="public-brand" href="/"><span>A</span>AutoML Studio</a><div><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></div><button className="secondary" type="button" onClick={onLogin}>Sign in</button></nav>
+  const nav = <nav className="public-nav" aria-label="Main navigation"><a className="public-brand" href="/"><span className="public-brand-mark"><AutoMLMark /></span>AutoML Studio</a><div><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></div><button className="secondary" type="button" onClick={onLogin}>Sign in</button></nav>
   if (page === 'home') return (
     <main className="public-page">
       {nav}
@@ -74,7 +75,7 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
           <article><RefreshCw/><h3>Preprocessing and feature work</h3><p>Apply transformations with a visible, deliberate workflow.</p></article>
           <article><BarChart3/><h3>Interactive visual analysis</h3><p>Build charts to inspect distributions and relationships.</p></article>
           <article><BrainCircuit/><h3>Model comparison</h3><p>Compare supported algorithms using task-appropriate metrics.</p></article>
-          <article><History/><h3>Experiment history</h3><p>Keep a record of training runs and revisit saved results.</p></article>
+          <article><Activity/><h3>Experiment history</h3><p>Keep a record of training runs and revisit saved results.</p></article>
           <article><ShieldCheck/><h3>Workspace separation</h3><p>Access datasets and experiments through your authenticated account.</p></article>
         </div>
       </section>

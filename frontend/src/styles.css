@@ -622,3 +622,13 @@ main.route-loading{position:fixed;inset:0;z-index:1000;display:flex;width:100%;m
 @media(max-width:1000px){.public-nav,.public-hero,.public-bottom-cta,.public-footer{width:calc(100% - 56px)}.public-hero{grid-template-columns:minmax(0,1fr) minmax(320px,.9fr);gap:35px}.public-hero h1{font-size:clamp(42px,5vw,58px)}.public-trust-strip{padding-right:28px;padding-left:28px}.public-workflow,.public-capabilities{padding-right:28px;padding-left:28px}}
 @media(max-width:760px){.public-hero{grid-template-columns:1fr;min-height:0;padding:58px 0}.public-product-sheet{justify-self:stretch;max-width:none}.public-trust-strip{grid-template-columns:1fr;gap:17px;padding:25px 28px}.public-workflow{grid-template-columns:1fr;gap:32px;padding:58px 28px}.public-feature-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 20px}.public-capabilities{padding:58px 28px}.public-capability-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.public-bottom-cta{align-items:flex-start;flex-direction:column}}
 @media(max-width:640px){.public-nav,.public-hero,.public-bottom-cta,.public-footer{width:calc(100% - 36px)}.public-hero h1{font-size:40px;letter-spacing:-1.8px}.public-hero-copy>p{font-size:13px}.public-product-sheet{padding:18px}.public-workflow{padding:48px 18px}.public-feature-list{grid-template-columns:1fr}.public-capabilities{padding:48px 18px}.public-capability-grid{grid-template-columns:1fr}.public-trust-strip{padding:24px 18px}.public-bottom-cta{padding:45px 0}}
+
+/* Custom AutoML Studio identity mark */
+.public-brand-mark,.auth-topbrand-mark,.route-loading-mark{display:grid;place-items:center;flex:0 0 auto}
+.public-brand-mark{width:34px;height:34px;border-radius:9px;background:#315fba;box-shadow:0 3px 9px rgba(49,95,186,.18)}
+.public-brand-mark svg,.auth-topbrand-mark svg,.route-loading-mark svg{display:block;width:100%;height:100%}
+.auth-topbrand-mark{overflow:hidden}
+.auth-topbrand-mark svg{width:32px;height:32px}
+.route-loading-mark{overflow:hidden;width:46px;height:46px;border-radius:11px;background:#315fba;box-shadow:0 5px 14px rgba(49,95,186,.2)}
+.route-loading-mark svg{width:46px;height:46px}
+.brand>svg{width:30px;height:30px;flex-shrink:0;color:#d8e5fb}
