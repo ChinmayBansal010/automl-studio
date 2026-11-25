@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowRight, Check, LockKeyhole, Mail, ShieldCheck, Sparkles } from 'lucide-react'
 import { authClient } from './auth'
+import { AutoMLMark } from './components/AutoMLMark'
 
 type AuthUser = { id: string; email: string; name?: string }
 
@@ -108,7 +109,7 @@ export function AuthScreen({ onAuthenticated, initialMode = 'login', onModeChang
     <main className="auth-page">
       <header className="auth-topbar">
         <a className="auth-topbrand" href="/" aria-label="AutoML Studio home">
-          <span className="auth-topbrand-mark"><Sparkles size={19} /></span>
+          <span className="auth-topbrand-mark"><AutoMLMark /></span>
           <span>AutoML <strong>Studio</strong></span>
         </a>
         <div className="auth-topbar-meta"><ShieldCheck size={15} /> Secure workspace access</div>
@@ -134,7 +135,7 @@ export function AuthScreen({ onAuthenticated, initialMode = 'login', onModeChang
         <section className="auth-panel">
           <div className="auth-card">
             <div className="auth-card-heading">
-              <div className="auth-card-icon"><Sparkles size={21} /></div>
+              <div className="auth-card-icon"><AutoMLMark /></div>
               <div><span className="auth-card-kicker">AUTOML STUDIO</span><h2>{needsVerification ? 'Verify your email' : isSignUp ? 'Create your account' : 'Welcome back'}</h2></div>
             </div>
             <p className="auth-card-description">

@@ -1,4 +1,5 @@
-import { LogOut, Sparkles } from 'lucide-react'
+import { LogOut } from 'lucide-react'
+import { AutoMLMark } from './AutoMLMark'
 
 type Props = {
   items: any[]
@@ -18,7 +19,7 @@ export function WorkspaceSidebar({ items, activeTab, email, onNavigate, onSignOu
 
   return (
     <aside className="sidebar">
-      <div className="brand"><Sparkles/><div><b>AutoML Studio</b><small>PRIVATE DATA WORKSPACE</small></div></div>
+      <div className="brand"><AutoMLMark/><div><b>AutoML Studio</b><small>PRIVATE DATA WORKSPACE</small></div></div>
       <nav aria-label="Workspace navigation">
         <div className="nav-section-label">HOME</div>
         {renderItems(items.slice(0, 1))}

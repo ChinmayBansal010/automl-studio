@@ -636,3 +636,13 @@ main.route-loading{position:fixed;inset:0;z-index:1000;display:flex;width:100%;m
 /* Keep controls compact when a neighbouring model picker is taller. */
 .formgrid>.field{align-content:start;align-self:start;min-height:0}
 .formgrid>.field>select,.formgrid>.field>input:not([type=range]):not([type=checkbox]){height:40px;min-height:40px;align-self:start}
+
+/* Original AutoML Studio mark sizing */
+.public-brand-mark{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:9px;background:#315fba;box-shadow:0 3px 9px rgba(49,95,186,.18)}
+.public-brand-mark svg{width:100%;height:100%;display:block}
+.auth-topbrand-mark{overflow:hidden}
+.auth-topbrand-mark svg{width:32px;height:32px;display:block}
+.auth-card-icon svg{width:28px;height:28px;display:block}
+.route-loading-mark{overflow:hidden}
+.route-loading-mark svg{width:42px;height:42px;display:block}
+.sidebar .brand>svg{width:30px;height:30px;flex:0 0 30px;color:#d8e5fb}

@@ -1,10 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="AutoML Studio">
-  <rect width="48" height="48" rx="11" fill="#315fba"/>
-  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M9 13.5 19.2 20M9 34.5 19.2 28M29 20l10-6.5M29 28l10 6.5" stroke-width="2.1" opacity=".85"/>
-    <path d="M19.2 20 24 17.2 28.8 20v8L24 30.8 19.2 28v-8Z" stroke-width="2"/>
-    <path d="m21.5 24 1.8 1.8 3.4-3.8" stroke-width="2"/>
-    <path d="M24 11.5v5.2" stroke-width="1.8" opacity=".8"/>
-  </g>
-  <g fill="#fff"><circle cx="7.5" cy="12.5" r="3.1"/><circle cx="7.5" cy="35.5" r="3.1"/><circle cx="40.5" cy="12.5" r="3.1"/><circle cx="40.5" cy="35.5" r="3.1"/><circle cx="24" cy="9" r="2.2"/></g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="11" fill="#315fba"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round"><path d="M9 13.5 19.2 20M9 34.5 19.2 28M29 20l10-6.5M29 28l10 6.5" stroke-width="2.1" opacity=".82"/><path d="M19.2 20 24 17.2 28.8 20v8L24 30.8 19.2 28v-8Z" stroke-width="2"/><path d="m21.5 24 1.8 1.8 3.4-3.8" stroke-width="2"/><path d="M24 11.5v5.2" stroke-width="1.8" opacity=".75"/></g><g fill="#fff"><circle cx="7.5" cy="12.5" r="3.1"/><circle cx="7.5" cy="35.5" r="3.1"/><circle cx="40.5" cy="12.5" r="3.1"/><circle cx="40.5" cy="35.5" r="3.1"/><circle cx="24" cy="9" r="2.2"/></g></svg>
