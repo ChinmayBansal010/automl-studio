@@ -632,3 +632,7 @@ main.route-loading{position:fixed;inset:0;z-index:1000;display:flex;width:100%;m
 .route-loading-mark{overflow:hidden;width:46px;height:46px;border-radius:11px;background:#315fba;box-shadow:0 5px 14px rgba(49,95,186,.2)}
 .route-loading-mark svg{width:46px;height:46px}
 .brand>svg{width:30px;height:30px;flex-shrink:0;color:#d8e5fb}
+
+/* Keep controls compact when a neighbouring model picker is taller. */
+.formgrid>.field{align-content:start;align-self:start;min-height:0}
+.formgrid>.field>select,.formgrid>.field>input:not([type=range]):not([type=checkbox]){height:40px;min-height:40px;align-self:start}
