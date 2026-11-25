@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Activity, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Database, FileSpreadsheet, FlaskConical, Github, Gauge, ShieldCheck, Target } from 'lucide-react'
+import { Activity, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Database, FileSpreadsheet, FlaskConical, Github, Gauge, RefreshCw, ShieldCheck, Target } from 'lucide-react'
 
 type Props = { page: 'home' | 'about' | 'privacy' | 'terms' | 'contact'; onLogin: () => void; onSignup: () => void }
 const updated = '24 November 2026'
