@@ -74,7 +74,7 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
           <article><RefreshCw/><h3>Preprocessing and feature work</h3><p>Apply transformations with a visible, deliberate workflow.</p></article>
           <article><BarChart3/><h3>Interactive visual analysis</h3><p>Build charts to inspect distributions and relationships.</p></article>
           <article><BrainCircuit/><h3>Model comparison</h3><p>Compare supported algorithms using task-appropriate metrics.</p></article>
-          <article><History/><h3>Experiment history</h3><p>Keep a record of training runs and revisit saved results.</p></article>
+          <article><Activity/><h3>Experiment history</h3><p>Keep a record of training runs and revisit saved results.</p></article>
           <article><ShieldCheck/><h3>Workspace separation</h3><p>Access datasets and experiments through your authenticated account.</p></article>
         </div>
       </section>
