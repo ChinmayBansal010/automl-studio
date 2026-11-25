@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import {
-  Activity, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Clock3,
-  Database, FilePlus2, FlaskConical, FolderOpen, Gauge, RefreshCw, Upload
+  Activity, ArrowDownUp, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Clock3,
+  Database, FilePlus2, FlaskConical, FolderOpen, Gauge, RefreshCw, Search, Upload, X
 } from 'lucide-react'
 
 type Dataset = { dataset_id: string; filename: string; saved_at?: string }
@@ -52,9 +52,14 @@ function dateLabel(value?: string) {
 export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload, onOpenDataset, onOpenTab }: Props) {
   const fileInput = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
+  const [datasetQuery, setDatasetQuery] = useState('')
+  const [datasetSort, setDatasetSort] = useState<'recent' | 'name'>('recent')
+  const [experimentFilter, setExperimentFilter] = useState('all')
   const savedModels = jobs.filter(job => Boolean(job.model_id)).length
   const completedRuns = jobs.filter(job => job.status === 'completed').length
-  const recentJobs = jobs.slice(0, 5)
+  const filteredDatasets = datasets.filter(dataset => dataset.filename.toLowerCase().includes(datasetQuery.trim().toLowerCase())).slice().sort((a, b) => datasetSort === 'name' ? a.filename.localeCompare(b.filename) : String(b.saved_at || '').localeCompare(String(a.saved_at || '')))
+  const filteredJobs = jobs.filter(job => experimentFilter === 'all' || String(job.status || 'unknown').toLowerCase() === experimentFilter)
+  const recentJobs = filteredJobs.slice(0, 8)
 
   function acceptFile(file?: File) {
     if (file) onUpload(file)
@@ -124,12 +129,18 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
       <div className="home-lower-grid">
         <section className="home-data-panel">
           <div className="home-panel-heading"><div><span>DATA LIBRARY</span><h3>Recent datasets</h3></div><span className="home-total">{datasets.length} total</span></div>
+          <div className="home-library-controls">
+            <label className="home-search"><Search size={15}/><input aria-label="Search datasets" value={datasetQuery} onChange={event => setDatasetQuery(event.target.value)} placeholder="Search datasets by filename"/></label>
+            <button className="home-sort-button" type="button" onClick={() => setDatasetSort(current => current === 'recent' ? 'name' : 'recent')}><ArrowDownUp size={14}/>{datasetSort === 'recent' ? 'Most recent' : 'Name A–Z'}</button>
+          </div>
           {loading ? <div className="home-loading">Loading workspace data…</div> : datasets.length === 0 ? (
-            <div className="home-empty"><FolderOpen size={22}/><strong>No datasets saved</strong><p>Uploaded datasets will appear here for quick access.</p></div>
-          ) : datasets.slice(0, 6).map(dataset => (
+            <div className="home-empty"><FolderOpen size={22}/><strong>No datasets saved</strong><p>Upload a CSV to start exploring, preparing and training models.</p><button className="secondary" type="button" onClick={() => fileInput.current?.click()}>Upload a dataset</button></div>
+          ) : filteredDatasets.length === 0 ? (
+            <div className="home-empty"><Search size={22}/><strong>No matching datasets</strong><p>Try another filename or clear your search.</p><button className="home-view-all" type="button" onClick={() => setDatasetQuery('')}><X size={13}/> Clear search</button></div>
+          ) : filteredDatasets.map(dataset => (
             <div className="home-dataset-row" key={dataset.dataset_id}>
               <span className="home-row-icon"><Database size={16}/></span>
-              <div><strong title={dataset.filename}>{dataset.filename}</strong><small>{dateLabel(dataset.saved_at)}{dataset.dataset_id === activeDataset?.dataset_id ? ' · Active' : ''}</small></div>
+              <div><strong title={dataset.filename}>{dataset.filename}</strong><small>{dateLabel(dataset.saved_at)}{dataset.dataset_id === activeDataset?.dataset_id ? ' · Active dataset' : ''}</small></div>
               <button className="home-row-action" type="button" onClick={() => onOpenDataset(dataset.dataset_id)}>{dataset.dataset_id === activeDataset?.dataset_id ? 'Continue' : 'Open'} <ArrowRight size={13}/></button>
             </div>
           ))}
@@ -137,8 +148,11 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
 
         <section className="home-data-panel">
           <div className="home-panel-heading"><div><span>MODEL ACTIVITY</span><h3>Recent experiments</h3></div><button className="home-view-all" type="button" onClick={() => onOpenTab('experiments')}>View history <ArrowRight size={13}/></button></div>
+          <div className="home-filter-row" role="group" aria-label="Filter experiments">
+            {['all', 'completed', 'running', 'failed', 'queued'].map(status => <button key={status} type="button" className={experimentFilter === status ? 'active' : ''} onClick={() => setExperimentFilter(status)}>{status === 'all' ? 'All' : status[0].toUpperCase() + status.slice(1)}</button>)}
+          </div>
           {recentJobs.length === 0 ? (
-            <div className="home-empty"><FlaskConical size={22}/><strong>No experiments yet</strong><p>Training runs and their results will appear here.</p></div>
+            <div className="home-empty"><FlaskConical size={22}/><strong>{jobs.length ? 'No experiments in this status' : 'No experiments yet'}</strong><p>{jobs.length ? 'Choose another filter to see more runs.' : 'Configure a training run to compare algorithms and track results.'}</p>{jobs.length > 0 && <button className="home-view-all" type="button" onClick={() => setExperimentFilter('all')}>Show all experiments</button>}</div>
           ) : recentJobs.map(job => (
             <div className="home-experiment-row" key={job.job_id}>
               <span className="home-row-icon"><FlaskConical size={16}/></span>
@@ -148,7 +162,7 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
           ))}
         </section>
       </div>
-      <p className="home-footnote"><Clock3 size={13}/> Your datasets and experiment history are associated with your workspace.</p>
+      <p className="home-footnote"><Clock3 size={13}/> Showing {filteredDatasets.length} of {datasets.length} datasets · {recentJobs.length} of {filteredJobs.length} matching experiments.</p>
     </div>
   )
 }

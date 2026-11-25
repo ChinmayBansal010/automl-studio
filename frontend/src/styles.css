@@ -558,3 +558,16 @@ option {
 .tablewrap th {
   white-space: nowrap;
 }
+
+/* Full-viewport route loader: override the workspace sidebar's main offset. */
+main.route-loading{position:fixed;inset:0;z-index:100;width:100vw;min-width:0;min-height:100vh;min-height:100svh;margin:0;padding:24px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;background:#f7f8fa;transform:none}
+.home-library-controls{display:flex;align-items:center;gap:8px;margin:10px 0 12px}
+.home-search{display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:36px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:#fff;color:#8290a2}
+.home-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--ink);font-size:11px}
+.home-search input:focus{outline:0;box-shadow:none}
+.home-sort-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;color:#53647a;font-size:10px;font-weight:650;white-space:nowrap}
+.home-sort-button:hover{border-color:#bdcadd;background:#f7f9fc}
+.home-filter-row{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 12px}
+.home-filter-row button{min-height:27px;padding:5px 9px;border:1px solid var(--line);border-radius:5px;background:#fff;color:#6d7b8e;font-size:9px;font-weight:650}
+.home-filter-row button.active{border-color:#b8c9e0;background:#eef3fa;color:#315fba}
+@media(max-width:640px){.home-library-controls{align-items:stretch;flex-direction:column}.home-sort-button{align-self:flex-start}.home-filter-row{gap:5px}}
