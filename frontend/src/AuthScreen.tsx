@@ -135,7 +135,7 @@ export function AuthScreen({ onAuthenticated, initialMode = 'login', onModeChang
         <section className="auth-panel">
           <div className="auth-card">
             <div className="auth-card-heading">
-              <div className="auth-card-icon"><Sparkles size={21} /></div>
+              <div className="auth-card-icon"><AutoMLMark /></div>
               <div><span className="auth-card-kicker">AUTOML STUDIO</span><h2>{needsVerification ? 'Verify your email' : isSignUp ? 'Create your account' : 'Welcome back'}</h2></div>
             </div>
             <p className="auth-card-description">

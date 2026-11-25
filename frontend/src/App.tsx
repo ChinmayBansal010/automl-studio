@@ -9,7 +9,6 @@ import { WorkspaceHeader } from './components/WorkspaceHeader'
 import { WorkspaceSidebar } from './components/WorkspaceSidebar'
 import { DashboardHome } from './DashboardHome'
 import { authClient } from './auth'
-import { AutoMLMark } from './components/AutoMLMark'
 
 const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')).replace(/\/+$/, '')
 const API = `${BACKEND_URL}/api`
@@ -401,7 +400,7 @@ function App(){
  async function signOut(){try{await authClient.signOut()}catch{}setUser(null);navigate('/login',true)}
  const cleanPath=path.endsWith('/')&&path!=='/'?path.slice(0,-1):path
  const requiresSession=cleanPath==='/app'||cleanPath.startsWith('/app/')
- if(!ready&&requiresSession)return <main className="route-loading" aria-live="polite"><div className="route-loading-mark"><AutoMLMark /></div><p>Opening your workspace</p><span>Verifying your saved session…</span></main>
+ if(!ready&&requiresSession)return <main className="route-loading" aria-live="polite"><div className="route-loading-mark">A</div><p>Opening your workspace</p><span>Verifying your saved session…</span></main>
  const statusSegment=cleanPath.split('/').filter(Boolean).pop()||''
  const statusCode=Number(statusSegment)
  const isStatusPage=['400','401','403','404','405','408','409','410','413','422','429','500','501','502','503','504'].includes(statusSegment)&&(cleanPath==='/'+statusSegment||cleanPath==='/status/'+statusSegment)
