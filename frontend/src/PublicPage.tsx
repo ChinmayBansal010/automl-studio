@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ArrowRight, BarChart3, Database, FileSpreadsheet, FlaskConical, Github, ShieldCheck } from 'lucide-react'
+import { Activity, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, Database, FileSpreadsheet, FlaskConical, Github, Gauge, ShieldCheck, Target } from 'lucide-react'
 
 type Props = { page: 'home' | 'about' | 'privacy' | 'terms' | 'contact'; onLogin: () => void; onSignup: () => void }
 const updated = '24 November 2026'
@@ -40,11 +40,45 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
     <main className="public-page">
       {nav}
       <section className="public-hero">
-        <div className="public-hero-copy"><span className="public-kicker">A WORKSPACE FOR APPLIED MACHINE LEARNING</span><h1>Build, compare and use machine-learning models. <em>Without the busywork.</em></h1><p>Move from a raw CSV to a trained model through a clear, repeatable workflow. Inspect the data first. Prepare it deliberately. Compare model performance. Keep the results together.</p><div className="public-hero-actions"><button className="primary" onClick={onSignup}>Create an account <ArrowRight size={16}/></button><button className="secondary" onClick={onLogin}>Sign in</button></div><small>For classification and regression workflows. No chatbot required.</small></div>
-        <div className="public-product-sheet"><div className="sheet-top"><span>WORKSPACE / DATA OVERVIEW</span><span className="sheet-status">● DATA LOADED</span></div><div className="sheet-file"><FileSpreadsheet size={19}/><div><strong>customer_churn.csv</strong><small>12,480 rows · 18 columns</small></div></div><div className="sheet-stats"><div><small>ROWS</small><strong>12,480</strong></div><div><small>COLUMNS</small><strong>18</strong></div><div><small>MISSING</small><strong>2.4%</strong></div></div><div className="sheet-bars"><span style={{width:'84%'}}/><span style={{width:'62%'}}/><span style={{width:'72%'}}/><span style={{width:'45%'}}/></div><div className="sheet-footer">Illustrative interface preview · not live dataset output</div></div>
+        <div className="public-hero-copy">
+          <span className="public-kicker">THE PRACTICAL MACHINE-LEARNING WORKSPACE</span>
+          <h1>From raw data to <em>reliable model decisions.</em></h1>
+          <p>Prepare datasets, explore patterns, train multiple algorithms and evaluate results in one structured workspace. Keep every experiment connected to the data and configuration that produced it.</p>
+          <div className="public-hero-actions"><button className="primary" onClick={onSignup}>Get started free <ArrowRight size={16}/></button><button className="secondary" onClick={onLogin}>Sign in</button></div>
+          <div className="public-hero-proof"><span><CheckCircle2 size={15}/> Classification and regression</span><span><CheckCircle2 size={15}/> Reproducible experiment history</span><span><CheckCircle2 size={15}/> CSV-first workflow</span></div>
+        </div>
+        <div className="public-product-sheet">
+          <div className="sheet-top"><span>WORKSPACE / DATA OVERVIEW</span><span className="sheet-status">● EXAMPLE WORKSPACE</span></div>
+          <div className="sheet-file"><FileSpreadsheet size={19}/><div><strong>customer_churn.csv</strong><small>12,480 rows · 18 columns</small></div></div>
+          <div className="sheet-stats"><div><small>ROWS</small><strong>12,480</strong></div><div><small>COLUMNS</small><strong>18</strong></div><div><small>MISSING</small><strong>2.4%</strong></div></div>
+          <div className="sheet-analysis"><div><span>DATA QUALITY</span><strong>97.6%</strong></div><div className="sheet-quality-track"><i/></div><div className="sheet-chart"><span/><span/><span/><span/><span/><span/><span/><span/><span/><span/><span/></div><div className="sheet-model-row"><span><BrainCircuit size={15}/> Random Forest</span><strong>Model evaluated</strong></div><div className="sheet-metric-row"><div><small>ACCURACY</small><strong>92.4%</strong></div><div><small>F1 SCORE</small><strong>0.91</strong></div><div><small>ROC AUC</small><strong>0.95</strong></div></div></div>
+          <div className="sheet-footer">Illustrative product preview · sample values, not live results</div>
+        </div>
       </section>
-      <section className="public-workflow"><div><span className="public-kicker">THE WORKFLOW</span><h2>One task at a time. Results you can inspect.</h2><p>Each stage has a defined purpose. You choose the transformations, target and algorithms; the application reports what happened.</p></div><div className="public-feature-list"><article><Database/><span>01</span><h3>Inspect the dataset</h3><p>Review schema, missing values, duplicates and descriptive statistics before training.</p></article><article><FileSpreadsheet/><span>02</span><h3>Prepare features</h3><p>Handle nulls, remove outliers, transform columns and save dataset versions.</p></article><article><BarChart3/><span>03</span><h3>Explore visually</h3><p>Build charts and inspect distributions, relationships and summary patterns.</p></article><article><FlaskConical/><span>04</span><h3>Train and compare</h3><p>Run classification or regression algorithms and compare their evaluation metrics.</p></article></div></section>
-      <section className="public-bottom-cta"><div><span className="public-kicker">START WITH YOUR DATA</span><h2>Make the next experiment a little more deliberate.</h2></div><button className="primary" onClick={onSignup}>Open your workspace <ArrowRight size={16}/></button></section>
+      <section className="public-trust-strip"><div><strong>One connected workflow</strong><span>Move from inspection through prediction without losing context.</span></div><div><strong>Transparent evaluation</strong><span>Compare metrics and inspect model performance.</span></div><div><strong>Your choices stay explicit</strong><span>Choose transformations, targets and algorithms.</span></div></section>
+      <section className="public-workflow">
+        <div><span className="public-kicker">A CLEAR, REPEATABLE PROCESS</span><h2>Every stage has a purpose.</h2><p>Work through the analysis in order, or return to any stage when you need to refine the dataset or compare a different approach.</p></div>
+        <div className="public-feature-list">
+          <article><Database/><span>01 / PROFILE</span><h3>Understand the dataset</h3><p>Inspect columns, data types, summary statistics, missing values and data quality before making changes.</p></article>
+          <article><FileSpreadsheet/><span>02 / PREPARE</span><h3>Prepare features</h3><p>Handle missing values, remove or clip outliers, convert columns and preserve dataset versions.</p></article>
+          <article><BarChart3/><span>03 / EXPLORE</span><h3>Explore patterns</h3><p>Build visualizations, compare distributions and examine relationships between variables.</p></article>
+          <article><FlaskConical/><span>04 / TRAIN</span><h3>Train and compare</h3><p>Run classification or regression algorithms, configure train-test splits and compare candidates.</p></article>
+          <article><Gauge/><span>05 / EVALUATE</span><h3>Measure performance</h3><p>Review evaluation metrics, confusion matrices and prediction behaviour before selecting a model.</p></article>
+          <article><Target/><span>06 / PREDICT</span><h3>Use the trained model</h3><p>Generate predictions for new CSV files and export the results for downstream work.</p></article>
+        </div>
+      </section>
+      <section className="public-capabilities">
+        <div className="public-capabilities-heading"><span className="public-kicker">BUILT FOR HANDS-ON ML</span><h2>Useful tools around the entire experiment.</h2><p>Not just a model-training button. Keep the work organized before, during and after a run.</p></div>
+        <div className="public-capability-grid">
+          <article><Activity/><h3>Data quality and profiling</h3><p>Review dataset structure and identify issues before training.</p></article>
+          <article><RefreshCw/><h3>Preprocessing and feature work</h3><p>Apply transformations with a visible, deliberate workflow.</p></article>
+          <article><BarChart3/><h3>Interactive visual analysis</h3><p>Build charts to inspect distributions and relationships.</p></article>
+          <article><BrainCircuit/><h3>Model comparison</h3><p>Compare supported algorithms using task-appropriate metrics.</p></article>
+          <article><History/><h3>Experiment history</h3><p>Keep a record of training runs and revisit saved results.</p></article>
+          <article><ShieldCheck/><h3>Workspace separation</h3><p>Access datasets and experiments through your authenticated account.</p></article>
+        </div>
+      </section>
+      <section className="public-bottom-cta"><div><span className="public-kicker">START WITH A CSV</span><h2>Make your next machine-learning experiment easier to inspect and improve.</h2><p>Create a workspace, upload a dataset and take the first step.</p></div><button className="primary" onClick={onSignup}>Create your workspace <ArrowRight size={16}/></button></section>
       <PublicFooter/>
     </main>
   )

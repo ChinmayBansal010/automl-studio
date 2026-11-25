@@ -390,7 +390,7 @@ function App(){
   if(!robots){robots=document.createElement('meta');robots.name='robots';document.head.appendChild(robots)}
   robots.content=privateRoute?'noindex, nofollow':'index, follow'
  },[path])
- useEffect(()=>{(async()=>{try{let result=await authClient.getSession();if(!result.error&&result.data?.user&&result.data.session?.token){setUser(result.data.user);return}result=await authClient.getSession({fetchOptions:{headers:{'X-Force-Fetch':'true'}}});if(result.error)throw new Error(result.error.message);if(result.data?.user&&result.data.session?.token)setUser(result.data.user)}catch(error){console.error('Could not restore the sign-in session:',error)}finally{setReady(true)}})()},[])
+ useEffect(()=>{let cancelled=false;(async()=>{try{const result=await authClient.getSession();if(!cancelled&&!result.error&&result.data?.user&&result.data.session?.token)setUser(result.data.user)}catch(error){console.error('Could not restore the sign-in session:',error)}finally{if(!cancelled)setReady(true)}})();return()=>{cancelled=true}},[])
  useEffect(()=>{
   if(!ready)return
   if(user&&['/','/login','/signup'].includes(path))navigate('/app/home',true)
@@ -398,8 +398,9 @@ function App(){
   else if(!user&&(path==='/app'||path.startsWith('/app/')))navigate('/login?next='+encodeURIComponent(path==='/app'?'/app/home':path),true)
  },[ready,user,path])
  async function signOut(){try{await authClient.signOut()}catch{}setUser(null);navigate('/login',true)}
- if(!ready)return <main className="route-loading"><div className="route-loading-mark">A</div><p>Restoring your workspace session</p><span>Checking account access…</span></main>
  const cleanPath=path.endsWith('/')&&path!=='/'?path.slice(0,-1):path
+ const requiresSession=cleanPath==='/app'||cleanPath.startsWith('/app/')
+ if(!ready&&requiresSession)return <main className="route-loading" aria-live="polite"><div className="route-loading-mark">A</div><p>Opening your workspace</p><span>Verifying your saved session…</span></main>
  const statusSegment=cleanPath.split('/').filter(Boolean).pop()||''
  const statusCode=Number(statusSegment)
  const isStatusPage=['400','401','403','404','405','408','409','410','413','422','429','500','501','502','503','504'].includes(statusSegment)&&(cleanPath==='/'+statusSegment||cleanPath==='/status/'+statusSegment)
