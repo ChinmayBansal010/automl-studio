@@ -45,7 +45,7 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
           <span className="public-kicker">THE PRACTICAL MACHINE-LEARNING WORKSPACE</span>
           <h1>From raw data to <em>reliable model decisions.</em></h1>
           <p>Prepare datasets, explore patterns, train multiple algorithms and evaluate results in one structured workspace. Keep every experiment connected to the data and configuration that produced it.</p>
-          <div className="public-hero-actions"><button className="primary" onClick={onSignup}>Get started free <ArrowRight size={16}/></button><button className="secondary" onClick={onLogin}>Sign in</button></div>
+          <div className="public-hero-actions"><button className="primary" onClick={onSignup}>Create your workspace <ArrowRight size={16}/></button><button className="secondary" onClick={onLogin}>Sign in</button><a className="public-tour-link" href="#workflow">Explore workflow <ArrowRight size={15}/></a></div>
           <div className="public-hero-proof"><span><CheckCircle2 size={15}/> Classification and regression</span><span><CheckCircle2 size={15}/> Reproducible experiment history</span><span><CheckCircle2 size={15}/> CSV-first workflow</span></div>
         </div>
         <div className="public-product-sheet">
@@ -56,7 +56,7 @@ export function PublicPage({ page, onLogin, onSignup }: Props) {
           <div className="sheet-footer">Illustrative product preview · sample values, not live results</div>
         </div>
       </section>
-      <section className="public-trust-strip"><div><strong>One connected workflow</strong><span>Move from inspection through prediction without losing context.</span></div><div><strong>Transparent evaluation</strong><span>Compare metrics and inspect model performance.</span></div><div><strong>Your choices stay explicit</strong><span>Choose transformations, targets and algorithms.</span></div></section>
+      <section className="public-trust-strip" aria-label="Platform principles"><div><strong>One connected workflow</strong><span>Move from inspection through prediction without losing context.</span></div><div><strong>Transparent evaluation</strong><span>Compare metrics and inspect model performance.</span></div><div><strong>Your choices stay explicit</strong><span>Choose transformations, targets and algorithms.</span></div></section>
       <section className="public-workflow">
         <div><span className="public-kicker">A CLEAR, REPEATABLE PROCESS</span><h2>Every stage has a purpose.</h2><p>Work through the analysis in order, or return to any stage when you need to refine the dataset or compare a different approach.</p></div>
         <div className="public-feature-list">

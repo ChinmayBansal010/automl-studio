@@ -402,7 +402,7 @@ function App(){
  async function signOut(){try{await authClient.signOut()}catch{}setUser(null);navigate('/login',true)}
  const cleanPath=path.endsWith('/')&&path!=='/'?path.slice(0,-1):path
  const requiresSession=cleanPath==='/app'||cleanPath.startsWith('/app/')
- if(!ready&&requiresSession)return <main className="route-loading" aria-live="polite"><div className="route-loading-mark"><AutoMLMark /></div><p>Opening your workspace</p><span>Verifying your saved session…</span></main>
+ if(!ready&&requiresSession)return <main className="route-loading" aria-live="polite"><div className="route-loading-glow"/><div className="route-loading-content"><div className="route-loading-brand"><span className="route-loading-mark"><AutoMLMark /></span><span>AutoML <strong>Studio</strong></span></div><div className="route-loading-orbit"><i/><i/><i/><span><AutoMLMark/></span></div><p>Preparing your workspace</p><span className="route-loading-caption">Securely checking your saved session</span><div className="route-loading-progress" aria-hidden="true"><i/></div><small className="route-loading-foot">DATA · EXPERIMENTS · MODELS</small></div></main>
  const statusSegment=cleanPath.split('/').filter(Boolean).pop()||''
  const statusCode=Number(statusSegment)
  const isStatusPage=['400','401','403','404','405','408','409','410','413','422','429','500','501','502','503','504'].includes(statusSegment)&&(cleanPath==='/'+statusSegment||cleanPath==='/status/'+statusSegment)
