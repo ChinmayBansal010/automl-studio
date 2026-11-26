@@ -55,14 +55,19 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
   const [datasetQuery, setDatasetQuery] = useState('')
   const [datasetSort, setDatasetSort] = useState<'recent' | 'name'>('recent')
   const [experimentFilter, setExperimentFilter] = useState('all')
+  const [experimentQuery, setExperimentQuery] = useState('')
+  const [uploadError, setUploadError] = useState('')
   const savedModels = jobs.filter(job => Boolean(job.model_id)).length
   const completedRuns = jobs.filter(job => job.status === 'completed').length
   const filteredDatasets = datasets.filter(dataset => dataset.filename.toLowerCase().includes(datasetQuery.trim().toLowerCase())).slice().sort((a, b) => datasetSort === 'name' ? a.filename.localeCompare(b.filename) : String(b.saved_at || '').localeCompare(String(a.saved_at || '')))
-  const filteredJobs = jobs.filter(job => experimentFilter === 'all' || String(job.status || 'unknown').toLowerCase() === experimentFilter)
+  const filteredJobs = jobs.filter(job => (experimentFilter === 'all' || String(job.status || 'unknown').toLowerCase() === experimentFilter) && [job.best_model, job.model_name, job.task, job.target, job.job_id].some(value => String(value || '').toLowerCase().includes(experimentQuery.trim().toLowerCase())))
   const recentJobs = filteredJobs.slice(0, 8)
 
   function acceptFile(file?: File) {
-    if (file) onUpload(file)
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.csv')) { setUploadError('Please choose a CSV file.'); return }
+    setUploadError('')
+    onUpload(file)
   }
 
   return (
@@ -79,6 +84,7 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
         <input ref={fileInput} className="hidden-upload" type="file" accept=".csv" onChange={event => { acceptFile(event.target.files?.[0]); event.currentTarget.value = '' }} />
       </section>
 
+      {uploadError && <div className="home-inline-error" role="alert">{uploadError}<button type="button" onClick={() => setUploadError('')} aria-label="Dismiss upload error"><X size={14}/></button></div>}
       <section className="home-stat-grid" aria-label="Workspace statistics">
         <div className="home-stat"><span className="home-stat-icon"><Database size={17}/></span><div><small>Datasets</small><strong>{datasets.length}</strong></div><span className="home-stat-note">In workspace</span></div>
         <div className="home-stat"><span className="home-stat-icon"><FlaskConical size={17}/></span><div><small>Experiments</small><strong>{jobs.length}</strong></div><span className="home-stat-note">Training runs</span></div>
@@ -95,7 +101,7 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
               <strong title={activeDataset.filename}>{activeDataset.filename}</strong>
               <span>{activeDataset.rows?.toLocaleString() ?? '—'} rows <i/> {activeDataset.columns?.toLocaleString() ?? '—'} columns <i/> {(activeDataset.missing_total ?? 0).toLocaleString()} missing cells</span>
             </div>
-            <button className="secondary home-continue" type="button" onClick={() => onOpenTab('overview')}>Continue analysis <ArrowRight size={15}/></button>
+            <div className="home-current-actions"><button className="secondary home-continue" type="button" onClick={() => onOpenTab('overview')}>Open dataset <ArrowRight size={15}/></button><button className="home-quick-link" type="button" onClick={() => onOpenTab(savedModels ? 'predict' : 'train')}>{savedModels ? 'Make predictions' : 'Train a model'} <ArrowRight size={14}/></button></div>
           </div>
         </section>
       ) : (
@@ -148,6 +154,7 @@ export function DashboardHome({ activeDataset, datasets, jobs, loading, onUpload
 
         <section className="home-data-panel">
           <div className="home-panel-heading"><div><span>MODEL ACTIVITY</span><h3>Recent experiments</h3></div><button className="home-view-all" type="button" onClick={() => onOpenTab('experiments')}>View history <ArrowRight size={13}/></button></div>
+          <label className="home-search home-experiment-search"><Search size={14}/><input aria-label="Search experiments" value={experimentQuery} onChange={event => setExperimentQuery(event.target.value)} placeholder="Search model, task or target"/>{experimentQuery && <button type="button" onClick={() => setExperimentQuery('')} aria-label="Clear experiment search"><X size={13}/></button>}</label>
           <div className="home-filter-row" role="group" aria-label="Filter experiments">
             {['all', 'completed', 'running', 'failed', 'queued'].map(status => <button key={status} type="button" className={experimentFilter === status ? 'active' : ''} onClick={() => setExperimentFilter(status)}>{status === 'all' ? 'All' : status[0].toUpperCase() + status.slice(1)}</button>)}
           </div>

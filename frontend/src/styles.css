@@ -646,3 +646,29 @@ main.route-loading{position:fixed;inset:0;z-index:1000;display:flex;width:100%;m
 .route-loading-mark{overflow:hidden}
 .route-loading-mark svg{width:42px;height:42px;display:block}
 .sidebar .brand>svg{width:30px;height:30px;flex:0 0 30px;color:#d8e5fb}
+
+/* Dashboard workflow refinements */
+.home-current-actions{display:flex;align-items:center;gap:14px;flex-shrink:0}
+.home-quick-link{display:inline-flex;align-items:center;gap:5px;padding:8px 0;border:0;background:transparent;color:#315fba;font-size:10px;font-weight:750;white-space:nowrap}
+.home-quick-link:hover,.home-view-all:hover,.home-row-action:hover{text-decoration:underline}
+.home-inline-error{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 13px;border:1px solid #f0d5d5;border-radius:7px;background:#fff8f8;color:#9b4444;font-size:11px}
+.home-inline-error button,.home-experiment-search>button{display:grid;place-items:center;padding:3px;border:0;background:transparent;color:inherit}
+.home-experiment-search{margin:0 0 9px}
+.home-experiment-search input{min-width:0}
+.home-filter-row{flex-wrap:wrap}
+@media(min-width:1500px){
+ .home-dashboard{gap:25px}
+ .home-workflow-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+ .home-workflow-card{min-height:166px;padding:17px}
+ .home-lower-grid{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:18px}
+ .home-data-panel{padding:20px}
+ .home-stat{padding:17px}
+}
+@media(max-width:760px){
+ .home-current-actions{width:100%;justify-content:space-between}
+ .home-current-main{flex-wrap:wrap}
+ .home-current-info{flex-basis:calc(100% - 55px)}
+ .home-current-actions{padding-left:48px}
+ .home-page-heading{align-items:flex-start;flex-direction:column}
+ .home-upload-button{width:100%;justify-content:center}
+}
